@@ -53,9 +53,9 @@ fun MainScreen(viewModel: MainViewModel) {
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Se genereaza")
+                    Text("Generate")
                 } else {
-                    Text("genereaza")
+                    Text("Generate")
                 }
             }
 

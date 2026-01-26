@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory // Daca folosesti Gson, altfel sterge linia asta daca nu ai converter
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
@@ -17,47 +18,57 @@ class TtsRepository(context: Context) {
     private val serverUrl = "ip"
     private val defaultVoice = "male_04.wav"
 
-    private val api: AllTalkApi
+    private var api: AllTalkApi? = null
     private val cacheDir = context.cacheDir
 
     init {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(90, TimeUnit.SECONDS)
-            .readTimeout(90, TimeUnit.SECONDS)
-            .writeTimeout(90, TimeUnit.SECONDS)
-            .build()
+        try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(90, TimeUnit.SECONDS)
+                .readTimeout(90, TimeUnit.SECONDS)
+                .writeTimeout(90, TimeUnit.SECONDS)
+                .build()
 
-        val retrofit = Retrofit.Builder()
-            .baseUrl(serverUrl)
-            .client(client)
-            .build()
+            val retrofit = Retrofit.Builder()
+                .baseUrl(serverUrl)
+                .client(client)
+                .build()
 
-        api = retrofit.create(AllTalkApi::class.java)
+            api = retrofit.create(AllTalkApi::class.java)
+            Log.d("TTS_REPO", "API success: $serverUrl")
+
+        } catch (e: Exception) {
+            Log.e("TTS_REPO", "API error: ${e.message}")
+            api = null
+        }
     }
 
     suspend fun fetchAudioFromServer(text: String): Result<File> {
         return withContext(Dispatchers.IO) {
-            try {
-                Log.d("TTS_REPO", "PASUL 1: Comanda generare...")
+            val currentApi = api
+            if (currentApi == null) {
+                return@withContext Result.failure(Exception("Wrong server config"))
+            }
 
-                api.generateAudio(
+            try {
+                Log.d("TTS_REPO", "generating")
+
+                currentApi.generateAudio(
                     text = text,
                     voice = defaultVoice,
                     narratorVoice = defaultVoice
                 )
 
-                Log.d("TTS_REPO", "Generare terminata pe server. PASUL 2: Descarcare...")
+                Log.d("TTS_REPO", "done generating")
 
-
-                val response = api.downloadAudio("android_output.wav")
-
+                val response = currentApi.downloadAudio("android_output.wav")
                 val file = saveToTempFile(response)
 
-                Log.d("TTS_REPO", "Fisier final descarcat: ${file.length()} bytes")
+                Log.d("TTS_REPO", "final file: ${file.length()} bytes")
 
                 Result.success(file)
             } catch (e: Exception) {
-                Log.e("TTS_REPO", "Eroare: ${e.message}", e)
+                Log.e("TTS_REPO", "connection error: ${e.message}", e)
                 Result.failure(e)
             }
         }

@@ -14,32 +14,32 @@ class AudioPlayerManager(private val context: Context) {
         try {
             stop()
 
-            Log.d("AUDIO_PLAYER", "Incercam redarea cu MediaPlayer clasic: ${file.absolutePath}")
-            Log.d("AUDIO_PLAYER", "Marime fizica: ${file.length()} bytes")
+            Log.d("AUDIO_PLAYER", "Classic: ${file.absolutePath}")
+            Log.d("AUDIO_PLAYER", "Size: ${file.length()} bytes")
 
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(context, Uri.fromFile(file))
 
                 setOnPreparedListener { mp ->
-                    Log.d("AUDIO_PLAYER", "GATA! Durata detectata: ${mp.duration} ms")
+                    Log.d("AUDIO_PLAYER", "Duration: ${mp.duration} ms")
                     mp.start()
-                    Log.d("AUDIO_PLAYER", "Redarea a inceput!")
+                    Log.d("AUDIO_PLAYER", "From the beggining")
                 }
 
                 setOnErrorListener { _, what, extra ->
-                    Log.e("AUDIO_PLAYER", "Eroare MediaPlayer: What=$what Extra=$extra")
+                    Log.e("AUDIO_PLAYER", "error MediaPlayer: What=$what Extra=$extra")
                     true
                 }
 
                 setOnCompletionListener {
-                    Log.d("AUDIO_PLAYER", "Redare finalizata.")
+                    Log.d("AUDIO_PLAYER", "End")
                 }
 
                 prepareAsync()
             }
 
         } catch (e: Exception) {
-            Log.e("AUDIO_PLAYER", "Eroare critica la initializare: ${e.message}", e)
+            Log.e("AUDIO_PLAYER", "init error: ${e.message}", e)
         }
     }
 
