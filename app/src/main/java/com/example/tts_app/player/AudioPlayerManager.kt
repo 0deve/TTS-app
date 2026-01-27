@@ -9,6 +9,7 @@ import java.io.File
 class AudioPlayerManager(private val context: Context) {
 
     private var mediaPlayer: MediaPlayer? = null
+    var onCompletionListener: (() -> Unit)? = null
 
     fun playFile(file: File) {
         try {
@@ -28,11 +29,13 @@ class AudioPlayerManager(private val context: Context) {
 
                 setOnErrorListener { _, what, extra ->
                     Log.e("AUDIO_PLAYER", "error MediaPlayer: What=$what Extra=$extra")
+                    onCompletionListener?.invoke()
                     true
                 }
 
                 setOnCompletionListener {
                     Log.d("AUDIO_PLAYER", "End")
+                    onCompletionListener?.invoke()
                 }
 
                 prepareAsync()
@@ -40,6 +43,7 @@ class AudioPlayerManager(private val context: Context) {
 
         } catch (e: Exception) {
             Log.e("AUDIO_PLAYER", "init error: ${e.message}", e)
+            onCompletionListener?.invoke()
         }
     }
 
@@ -55,5 +59,6 @@ class AudioPlayerManager(private val context: Context) {
 
     fun release() {
         stop()
+        onCompletionListener = null
     }
 }
