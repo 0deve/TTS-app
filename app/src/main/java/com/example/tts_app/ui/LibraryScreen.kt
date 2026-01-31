@@ -35,9 +35,12 @@ fun LibraryScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
+                val baseText = "The quick brown fox jumps over the lazy dog. Amidst the whispering woods, the silver stream hummed a quiet lullaby. It was the best of times, it was the worst of times—a paradox of ordinary life, where every shadow held a secret and every light promised a new beginning"
+                val demoContent = (1..5).joinToString(separator = "\n\n") { baseText }
+
                 viewModel.importBookMock(
                     "Demo ${books.size + 1}",
-                    "The quick brown fox jumps over the lazy dog. Amidst the whispering woods, the silver stream hummed a quiet lullaby. It was the best of times, it was the worst of times—a paradox of ordinary life, where every shadow held a secret and every light promised a new beginning"
+                    demoContent
                 )
             }) {
                 Icon(Icons.Default.Add, contentDescription = "Import")

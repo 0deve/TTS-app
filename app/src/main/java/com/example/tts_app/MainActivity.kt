@@ -3,7 +3,15 @@ package com.example.tts_app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -13,7 +21,6 @@ import com.example.tts_app.data.local.AppDatabase
 import com.example.tts_app.player.AudioPlayerManager
 import com.example.tts_app.ui.*
 import com.example.tts_app.player.LocalTtsManager
-
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,7 +36,18 @@ class MainActivity : ComponentActivity() {
         val viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
         setContent {
-            AppNavigation(viewModel)
+            val isDarkMode by viewModel.isDarkMode.collectAsState()
+
+            MaterialTheme(
+                colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavigation(viewModel)
+                }
+            }
         }
     }
 }
@@ -40,7 +58,6 @@ fun AppNavigation(viewModel: MainViewModel) {
 
     NavHost(navController = navController, startDestination = "library") {
 
-        // ecranul principal cu lista de carti
         composable("library") {
             LibraryScreen(
                 viewModel = viewModel,
@@ -60,7 +77,10 @@ fun AppNavigation(viewModel: MainViewModel) {
         }
 
         composable("settings") {
-            SettingsScreen(viewModel = viewModel)
+            SettingsScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

@@ -29,6 +29,11 @@ class MainViewModel(
 
     private val _isServerTtsEnabled = MutableStateFlow(true)
     val isServerTtsEnabled: StateFlow<Boolean> = _isServerTtsEnabled.asStateFlow()
+    private val _isDarkMode = MutableStateFlow(false)
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _ttsSpeed = MutableStateFlow(1.0f)
+    val ttsSpeed: StateFlow<Float> = _ttsSpeed.asStateFlow()
 
     val books = bookDao.getAllBooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -57,6 +62,17 @@ class MainViewModel(
     fun setTtsMode(useServer: Boolean) {
         stopAudio()
         _isServerTtsEnabled.value = useServer
+    }
+
+    fun toggleDarkMode(enabled: Boolean) {
+        _isDarkMode.value = enabled
+    }
+
+    fun setTtsSpeed(speed: Float) {
+        _ttsSpeed.value = speed
+        if (!_isServerTtsEnabled.value && isPlaying) {
+            localTts.setSpeed(speed)
+        }
     }
 
     private fun parseTextToLines(text: String): List<String> {
@@ -96,6 +112,7 @@ class MainViewModel(
         isPlaying = true
         _currentPlaybackIndex.value = index
         val textToPlay = playbackQueue[index]
+        val speed = _ttsSpeed.value
 
         if (_isServerTtsEnabled.value) {
             _uiState.value = UiState.Loading
@@ -104,7 +121,7 @@ class MainViewModel(
                 result.onSuccess { file ->
                     if (isPlaying && _currentPlaybackIndex.value == index) {
                         _uiState.value = UiState.Success
-                        audioPlayer.playFile(file)
+                        audioPlayer.playFile(file, speed)
                     }
                 }.onFailure { error ->
                     _uiState.value = UiState.Error(error.message ?: "Server Error")
@@ -113,6 +130,7 @@ class MainViewModel(
             }
         } else {
             _uiState.value = UiState.Success
+            localTts.setSpeed(speed)
             localTts.speak(textToPlay)
         }
     }

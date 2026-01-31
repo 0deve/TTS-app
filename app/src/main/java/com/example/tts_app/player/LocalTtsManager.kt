@@ -44,6 +44,12 @@ class LocalTtsManager(context: Context) : TextToSpeech.OnInitListener {
         })
     }
 
+    fun setSpeed(speed: Float) {
+        if (isInitialized) {
+            tts?.setSpeechRate(speed)
+        }
+    }
+
     fun speak(text: String) {
         if (isInitialized) {
             val params = android.os.Bundle()
