@@ -29,11 +29,21 @@ class MainViewModel(
 
     private val _isServerTtsEnabled = MutableStateFlow(true)
     val isServerTtsEnabled: StateFlow<Boolean> = _isServerTtsEnabled.asStateFlow()
-    private val _isDarkMode = MutableStateFlow(false)
+
+    private val _isDarkMode = MutableStateFlow(true)
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
     private val _ttsSpeed = MutableStateFlow(1.0f)
     val ttsSpeed: StateFlow<Float> = _ttsSpeed.asStateFlow()
+
+    private val _fontSize = MutableStateFlow(18f)
+    val fontSize: StateFlow<Float> = _fontSize.asStateFlow()
+
+    private val _serverIp = MutableStateFlow("http://192.168.1.2:8774")
+    val serverIp: StateFlow<String> = _serverIp.asStateFlow()
+
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.None)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     val books = bookDao.getAllBooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -57,6 +67,7 @@ class MainViewModel(
         localTts.onCompletionListener = {
             playNextSegment()
         }
+        repository.setServerUrl(_serverIp.value)
     }
 
     fun setTtsMode(useServer: Boolean) {
@@ -72,6 +83,24 @@ class MainViewModel(
         _ttsSpeed.value = speed
         if (!_isServerTtsEnabled.value && isPlaying) {
             localTts.setSpeed(speed)
+        }
+    }
+
+    fun setFontSize(size: Float) {
+        _fontSize.value = size
+    }
+
+    fun updateServerIp(ip: String) {
+        _serverIp.value = ip
+        repository.setServerUrl(ip)
+        _connectionState.value = ConnectionState.None
+    }
+
+    fun testServerConnection() {
+        viewModelScope.launch {
+            _connectionState.value = ConnectionState.Testing
+            val success = repository.testConnection()
+            _connectionState.value = if (success) ConnectionState.Success else ConnectionState.Failed
         }
     }
 
@@ -196,4 +225,8 @@ sealed class UiState {
     object Loading : UiState()
     object Success : UiState()
     data class Error(val message: String) : UiState()
+}
+
+enum class ConnectionState {
+    None, Testing, Success, Failed
 }

@@ -1,5 +1,6 @@
 package com.example.tts_app
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,11 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -26,24 +26,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        window.statusBarColor = Color.parseColor("#111827")
+        window.navigationBarColor = Color.parseColor("#111827")
+
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
+
         val database = AppDatabase.getDatabase(applicationContext)
         val repository = TtsRepository(applicationContext)
         val audioPlayer = AudioPlayerManager(applicationContext)
         val localTts = LocalTtsManager(applicationContext)
 
         val factory = MainViewModelFactory(repository, audioPlayer, localTts, database.bookDao())
-
         val viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
         setContent {
-            val isDarkMode by viewModel.isDarkMode.collectAsState()
-
             MaterialTheme(
-                colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()
+                colorScheme = darkColorScheme()
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = ComposeColor(0xFF111827)
                 ) {
                     AppNavigation(viewModel)
                 }
@@ -57,7 +62,6 @@ fun AppNavigation(viewModel: MainViewModel) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = "library") {
-
         composable("library") {
             LibraryScreen(
                 viewModel = viewModel,

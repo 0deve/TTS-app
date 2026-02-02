@@ -8,38 +8,65 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory // Daca folosesti Gson, altfel sterge linia asta daca nu ai converter
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 class TtsRepository(context: Context) {
 
-    private val serverUrl = "ip"
-    private val defaultVoice = "male_04.wav"
-
     private var api: AllTalkApi? = null
     private val cacheDir = context.cacheDir
+    private var currentBaseUrl: String = "http://127.0.0.1:8774"
 
     init {
+        buildClient(currentBaseUrl)
+    }
+
+    private fun buildClient(url: String) {
         try {
+            val formattedUrl = if (url.endsWith("/")) url else "$url/"
+
             val client = OkHttpClient.Builder()
-                .connectTimeout(90, TimeUnit.SECONDS)
-                .readTimeout(90, TimeUnit.SECONDS)
-                .writeTimeout(90, TimeUnit.SECONDS)
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
                 .build()
 
             val retrofit = Retrofit.Builder()
-                .baseUrl(serverUrl)
+                .baseUrl(formattedUrl)
                 .client(client)
                 .build()
 
             api = retrofit.create(AllTalkApi::class.java)
-            Log.d("TTS_REPO", "API success: $serverUrl")
+            currentBaseUrl = formattedUrl
+            Log.d("TTS_REPO", "API rebuilt: $formattedUrl")
 
         } catch (e: Exception) {
-            Log.e("TTS_REPO", "API error: ${e.message}")
+            Log.e("TTS_REPO", "Init error: ${e.message}")
             api = null
+        }
+    }
+
+    fun setServerUrl(newUrl: String) {
+        buildClient(newUrl)
+    }
+
+    suspend fun testConnection(): Boolean {
+        return withContext(Dispatchers.IO) {
+            val currentApi = api ?: return@withContext false
+            try {
+                currentApi.generateAudio(
+                    text = "test",
+                    voice = "check_connection",
+                    narratorVoice = "check_connection"
+                )
+                true
+            } catch (e: retrofit2.HttpException) {
+                true
+            } catch (e: Exception) {
+                Log.e("TTS_REPO", "Connection failed: ${e.message}")
+                false
+            }
         }
     }
 
@@ -47,7 +74,7 @@ class TtsRepository(context: Context) {
         return withContext(Dispatchers.IO) {
             val currentApi = api
             if (currentApi == null) {
-                return@withContext Result.failure(Exception("Wrong server config"))
+                return@withContext Result.failure(Exception("Invalid Server URL"))
             }
 
             try {
@@ -55,8 +82,8 @@ class TtsRepository(context: Context) {
 
                 currentApi.generateAudio(
                     text = text,
-                    voice = defaultVoice,
-                    narratorVoice = defaultVoice
+                    voice = "male_04.wav",
+                    narratorVoice = "male_04.wav"
                 )
 
                 Log.d("TTS_REPO", "done generating")
