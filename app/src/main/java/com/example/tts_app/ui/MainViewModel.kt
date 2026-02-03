@@ -1,21 +1,17 @@
 package com.example.tts_app.ui
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tts_app.data.TtsRepository
-import com.example.tts_app.data.local.Book
 import com.example.tts_app.data.local.BookDao
+import com.example.tts_app.data.local.Chapter
+import com.example.tts_app.data.local.Novel
 import com.example.tts_app.player.AudioPlayerManager
 import com.example.tts_app.player.LocalTtsManager
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainViewModel(
     private val repository: TtsRepository,
@@ -25,208 +21,206 @@ class MainViewModel(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    val uiState = _uiState.asStateFlow()
 
     private val _isServerTtsEnabled = MutableStateFlow(true)
-    val isServerTtsEnabled: StateFlow<Boolean> = _isServerTtsEnabled.asStateFlow()
-
+    val isServerTtsEnabled = _isServerTtsEnabled.asStateFlow()
     private val _isDarkMode = MutableStateFlow(true)
-    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
-
+    val isDarkMode = _isDarkMode.asStateFlow()
     private val _ttsSpeed = MutableStateFlow(1.0f)
-    val ttsSpeed: StateFlow<Float> = _ttsSpeed.asStateFlow()
-
+    val ttsSpeed = _ttsSpeed.asStateFlow()
     private val _fontSize = MutableStateFlow(18f)
-    val fontSize: StateFlow<Float> = _fontSize.asStateFlow()
-
+    val fontSize = _fontSize.asStateFlow()
     private val _serverIp = MutableStateFlow("http://192.168.1.2:8774")
-    val serverIp: StateFlow<String> = _serverIp.asStateFlow()
-
+    val serverIp = _serverIp.asStateFlow()
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.None)
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    val connectionState = _connectionState.asStateFlow()
 
-    val books = bookDao.getAllBooks()
+    val libraryNovels = bookDao.getLibraryNovels()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val downloadedNovels = repository.getDownloadedNovels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _activeBook = MutableStateFlow<Book?>(null)
-    val activeBook: StateFlow<Book?> = _activeBook.asStateFlow()
+    private val _activeNovel = MutableStateFlow<Novel?>(null)
+    val activeNovel = _activeNovel.asStateFlow()
+
+    private val _activeChapters = MutableStateFlow<List<Chapter>>(emptyList())
+    val activeChapters = _activeChapters.asStateFlow()
 
     private val _chapterLines = MutableStateFlow<List<String>>(emptyList())
-    val chapterLines: StateFlow<List<String>> = _chapterLines.asStateFlow()
+    val chapterLines = _chapterLines.asStateFlow()
 
     private val _currentPlaybackIndex = MutableStateFlow(-1)
-    val currentPlaybackIndex: StateFlow<Int> = _currentPlaybackIndex.asStateFlow()
+    val currentPlaybackIndex = _currentPlaybackIndex.asStateFlow()
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying = _isPlaying.asStateFlow()
+
+    private val _downloadProgress = MutableStateFlow<Float?>(null)
+    val downloadProgress = _downloadProgress.asStateFlow()
+
+    private val _isChapterSortAscending = MutableStateFlow(true)
+    val isChapterSortAscending = _isChapterSortAscending.asStateFlow()
+
+    private var downloadJob: Job? = null
+    private var novelJob: Job? = null
 
     private var playbackQueue: List<String> = emptyList()
-    private var isPlaying = false
 
     init {
-        audioPlayer.onCompletionListener = {
-            playNextSegment()
-        }
-        localTts.onCompletionListener = {
-            playNextSegment()
-        }
+        audioPlayer.onCompletionListener = { playNextSegment() }
+        localTts.onCompletionListener = { playNextSegment() }
         repository.setServerUrl(_serverIp.value)
     }
 
-    fun setTtsMode(useServer: Boolean) {
-        stopAudio()
-        _isServerTtsEnabled.value = useServer
-    }
-
-    fun toggleDarkMode(enabled: Boolean) {
-        _isDarkMode.value = enabled
-    }
-
-    fun setTtsSpeed(speed: Float) {
-        _ttsSpeed.value = speed
-        if (!_isServerTtsEnabled.value && isPlaying) {
-            localTts.setSpeed(speed)
+    fun openNovelDetails(novelId: Int, filterDownloaded: Boolean = false) {
+        novelJob?.cancel()
+        novelJob = viewModelScope.launch {
+            val novel = bookDao.getNovelById(novelId)
+            _activeNovel.value = novel
+            if (novel != null) {
+                bookDao.getChapters(novelId).collect { allChapters ->
+                    if (filterDownloaded) {
+                        _activeChapters.value = allChapters.filter { it.isDownloaded }
+                    } else {
+                        _activeChapters.value = allChapters
+                    }
+                }
+            }
         }
     }
 
-    fun setFontSize(size: Float) {
-        _fontSize.value = size
+    fun toggleChapterSort() { _isChapterSortAscending.value = !_isChapterSortAscending.value }
+
+    fun downloadSingleChapter(chapter: Chapter) {
+        viewModelScope.launch(Dispatchers.IO) { repository.downloadChapterExplicitly(chapter.id) }
     }
 
-    fun updateServerIp(ip: String) {
-        _serverIp.value = ip
-        repository.setServerUrl(ip)
-        _connectionState.value = ConnectionState.None
+    fun playFromIndex(chapterIndex: Int, autoPlay: Boolean = true) {
+        val novel = _activeNovel.value ?: return
+        if (novel.currentChapterIndex != chapterIndex) {
+            updateProgress(novel, chapterIndex)
+        }
+
+        val chapter = _activeChapters.value.find { it.index == chapterIndex } ?: return
+        loadChapterContent(chapter, autoPlay)
     }
 
-    fun testServerConnection() {
+    fun onSegmentClick(index: Int) {
+        if (index in playbackQueue.indices) {
+            stopAudio()
+            playAudioSegment(index)
+        }
+    }
+
+    private fun loadChapterContent(chapter: Chapter, autoPlay: Boolean) {
         viewModelScope.launch {
-            _connectionState.value = ConnectionState.Testing
-            val success = repository.testConnection()
-            _connectionState.value = if (success) ConnectionState.Success else ConnectionState.Failed
+            _uiState.value = UiState.Loading
+            stopAudio()
+
+            val content = repository.downloadChapterContent(chapter.id)
+            if (content.isNotEmpty()) {
+                val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
+                _chapterLines.value = lines
+                playbackQueue = lines
+
+                _currentPlaybackIndex.value = 0
+                if (autoPlay) {
+                    playAudioSegment(0)
+                }
+
+                _uiState.value = UiState.Idle
+            } else {
+                _uiState.value = UiState.Error("Failed to load content")
+            }
         }
     }
 
-    private fun parseTextToLines(text: String): List<String> {
-        return text.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
-    }
-
-    fun loadChapterText(text: String) {
-        val lines = parseTextToLines(text)
-        _chapterLines.value = lines
-        stopAudio()
-    }
-
-    fun generateAudio(text: String) {
-        stopAudio()
-        playbackQueue = listOf(text)
-        _currentPlaybackIndex.value = -1
-        playSegment(0)
-    }
-
-    fun playFromIndex(index: Int) {
-        stopAudio()
-        val lines = _chapterLines.value
-        if (index in lines.indices) {
-            playbackQueue = lines
-            playSegment(index)
+    fun togglePlayPause() {
+        if (_isPlaying.value) {
+            stopAudio()
+            _isPlaying.value = false
+        } else {
+            val index = if (_currentPlaybackIndex.value == -1) 0 else _currentPlaybackIndex.value
+            playAudioSegment(index)
         }
     }
 
-    private fun playSegment(index: Int) {
+    private fun playAudioSegment(index: Int) {
         if (index >= playbackQueue.size || index < 0) {
             _uiState.value = UiState.Idle
             _currentPlaybackIndex.value = -1
-            isPlaying = false
+            _isPlaying.value = false
             return
         }
 
-        isPlaying = true
+        _isPlaying.value = true
         _currentPlaybackIndex.value = index
-        val textToPlay = playbackQueue[index]
-        val speed = _ttsSpeed.value
+        val text = playbackQueue[index]
 
         if (_isServerTtsEnabled.value) {
             _uiState.value = UiState.Loading
             viewModelScope.launch {
-                val result = repository.fetchAudioFromServer(textToPlay)
-                result.onSuccess { file ->
-                    if (isPlaying && _currentPlaybackIndex.value == index) {
+                repository.fetchAudioFromServer(text).onSuccess { file ->
+                    if(_isPlaying.value && _currentPlaybackIndex.value == index) {
                         _uiState.value = UiState.Success
-                        audioPlayer.playFile(file, speed)
+                        audioPlayer.playFile(file, _ttsSpeed.value)
                     }
-                }.onFailure { error ->
-                    _uiState.value = UiState.Error(error.message ?: "Server Error")
-                    isPlaying = false
+                }.onFailure {
+                    _uiState.value = UiState.Error(it.message ?: "Error")
+                    _isPlaying.value = false
                 }
             }
         } else {
-            _uiState.value = UiState.Success
-            localTts.setSpeed(speed)
-            localTts.speak(textToPlay)
+            localTts.speak(text)
         }
     }
 
     private fun playNextSegment() {
         viewModelScope.launch(Dispatchers.Main) {
-            if (isPlaying) {
-                val nextIndex = _currentPlaybackIndex.value + 1
-                playSegment(nextIndex)
-            }
+            if(_isPlaying.value) playAudioSegment(_currentPlaybackIndex.value + 1)
         }
     }
 
     fun stopAudio() {
-        isPlaying = false
+        _isPlaying.value = false
         audioPlayer.stop()
         localTts.stop()
-        _uiState.value = UiState.Idle
-        _currentPlaybackIndex.value = -1
     }
 
-    fun importBookMock(title: String, fullText: String) {
+    fun updateProgress(novel: Novel, newIndex: Int) {
         viewModelScope.launch {
-            val chapters = fullText.split("\n\n").filter { it.isNotBlank() }
-            val newBook = Book(title = title, content = fullText, totalChapters = chapters.size)
-            bookDao.insertBook(newBook)
-        }
-    }
-
-    fun openBook(bookId: Int) {
-        viewModelScope.launch {
-            val book = bookDao.getBookById(bookId)
-            _activeBook.value = book
-            if (book != null) {
-                val chapters = book.content.split("\n\n").filter { it.isNotBlank() }
-                val currentText = chapters.getOrElse(book.currentChapterIndex) { "" }
-                loadChapterText(currentText)
+            val updated = novel.copy(currentChapterIndex = newIndex)
+            bookDao.updateNovel(updated)
+            if (_activeNovel.value?.id == novel.id) {
+                _activeNovel.value = updated
             }
         }
     }
 
-    fun updateProgress(book: Book, newIndex: Int) {
-        viewModelScope.launch {
-            val updated = book.copy(currentChapterIndex = newIndex, lastAccessed = System.currentTimeMillis())
-            bookDao.updateBook(updated)
-            _activeBook.value = updated
-
-            val chapters = updated.content.split("\n\n").filter { it.isNotBlank() }
-            val currentText = chapters.getOrElse(newIndex) { "" }
-            loadChapterText(currentText)
+    fun downloadNovel(novelId: Int, amount: Int, mode: String = "all") {
+        if (downloadJob?.isActive == true) return
+        downloadJob = viewModelScope.launch(Dispatchers.IO) {
+            _downloadProgress.value = 0f
+            if (mode == "unread") {
+                val novel = bookDao.getNovelById(novelId) ?: return@launch
+                repository.downloadChapters(novelId, amount, novel.currentChapterIndex).collect { _downloadProgress.value = it }
+            } else {
+                repository.downloadChapters(novelId, amount, 0).collect { _downloadProgress.value = it }
+            }
+            _downloadProgress.value = null
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        audioPlayer.release()
-        localTts.shutdown()
-    }
-}
+    fun cancelDownload() { downloadJob?.cancel(); _downloadProgress.value = null }
+    fun searchNovels(query: String, onResult: (List<Novel>) -> Unit) { viewModelScope.launch { onResult(repository.searchRemoteNovels(query)) } }
+    fun addToLibrary(novel: Novel) { viewModelScope.launch { repository.addToLibrary(novel) } }
+    fun setTtsMode(enabled: Boolean) { _isServerTtsEnabled.value = enabled; stopAudio() }
+    fun setFontSize(size: Float) { _fontSize.value = size }
+    fun setTtsSpeed(speed: Float) { _ttsSpeed.value = speed; if(!_isServerTtsEnabled.value) localTts.setSpeed(speed) }
+    fun updateServerIp(ip: String) { _serverIp.value = ip; repository.setServerUrl(ip) }
+    fun testServerConnection() { viewModelScope.launch { _connectionState.value = ConnectionState.Testing; val s = repository.testConnection(); _connectionState.value = if(s) ConnectionState.Success else ConnectionState.Failed } }
+    fun generateAudio(text: String) { stopAudio(); playbackQueue = listOf(text); playAudioSegment(0) }
 
-sealed class UiState {
-    object Idle : UiState()
-    object Loading : UiState()
-    object Success : UiState()
-    data class Error(val message: String) : UiState()
-}
-
-enum class ConnectionState {
-    None, Testing, Success, Failed
+    override fun onCleared() { super.onCleared(); audioPlayer.release(); localTts.shutdown() }
 }

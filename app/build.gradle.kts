@@ -74,4 +74,7 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.navigation:navigation-compose:2.7.6")
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
+
+    implementation("org.jsoup:jsoup:1.17.2")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
