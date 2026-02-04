@@ -7,4 +7,5 @@ interface NovelSource {
     suspend fun searchNovels(query: String): List<Novel>
     suspend fun getNovelDetails(novelUrl: String): Pair<Novel, List<Chapter>>
     suspend fun getChapterContent(chapterUrl: String): String
+    suspend fun getChaptersBatch(novelUrl: String, page: Int): List<Chapter>
 }

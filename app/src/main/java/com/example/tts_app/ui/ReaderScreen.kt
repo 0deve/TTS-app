@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,14 +43,34 @@ fun ReaderScreen(
     val ttsSpeed by viewModel.ttsSpeed.collectAsState()
     val fontSize by viewModel.fontSize.collectAsState()
 
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopAudio()
+        }
+    }
+
+    var isImmersiveMode by remember { mutableStateOf(false) }
+
+    var sliderPosition by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    var selectedSegmentIndex by remember { mutableStateOf(-1) }
+
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(currentIndex, isDragging) {
+        if (!isDragging && currentIndex != -1) {
+            sliderPosition = currentIndex.toFloat()
+        }
+    }
+
     val currentChapterTitle = remember(novel, chapters) {
         chapters.find { it.index == (novel?.currentChapterIndex ?: 0) }?.title ?: "Unknown Chapter"
     }
 
-    val listState = rememberLazyListState()
-
     LaunchedEffect(currentIndex) {
-        if (currentIndex != -1) {
+        if (currentIndex != -1 && !isDragging) {
             listState.animateScrollToItem(currentIndex)
         }
     }
@@ -61,38 +84,40 @@ fun ReaderScreen(
     Scaffold(
         containerColor = bgColor,
         topBar = {
-            CenterAlignedTopAppBar(
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = bgColor,
-                    titleContentColor = textColor,
-                    navigationIconContentColor = textColor
-                ),
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = novel?.title ?: "Unknown",
-                            fontSize = 12.sp,
-                            color = secondaryColor,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = currentChapterTitle,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+            if (!isImmersiveMode) {
+                CenterAlignedTopAppBar(
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = bgColor,
+                        titleContentColor = textColor,
+                        navigationIconContentColor = textColor
+                    ),
+                    title = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = novel?.title ?: "Unknown",
+                                fontSize = 12.sp,
+                                color = secondaryColor,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = currentChapterTitle,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.stopAudio(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back")
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.stopAudio(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back")
-                    }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -107,84 +132,155 @@ fun ReaderScreen(
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 160.dp)
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp),
+                    contentPadding = PaddingValues(
+                        top = 20.dp,
+                        bottom = if (isImmersiveMode) 80.dp else 240.dp
+                    )
                 ) {
-                    item { Spacer(modifier = Modifier.height(20.dp)) }
                     itemsIndexed(lines) { index, line ->
                         val isActive = (index == currentIndex)
-                        Text(
-                            text = line,
-                            color = if (isActive) primaryColor else textColor,
-                            fontSize = fontSize.sp,
-                            lineHeight = (fontSize + 10).sp,
+                        val isSelected = (index == selectedSegmentIndex)
+
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 16.dp)
-                                .background(if (isActive) primaryColor.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                .clickable { viewModel.onSegmentClick(index) }
-                                .padding(4.dp)
-                        )
+                        ) {
+                            Text(
+                                text = line,
+                                color = if (isActive) primaryColor else textColor,
+                                fontSize = fontSize.sp,
+                                lineHeight = (fontSize + 10).sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isActive) primaryColor.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        selectedSegmentIndex = if (selectedSegmentIndex == index) -1 else index
+                                    }
+                                    .padding(4.dp)
+                            )
+
+                            if (isSelected) {
+                                Surface(
+                                    color = cardColor,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor),
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .align(Alignment.End)
+                                        .clickable {
+                                            viewModel.onSegmentClick(index)
+                                            selectedSegmentIndex = -1
+                                        }
+                                ) {
+                                    Text(
+                                        text = "TTS from here",
+                                        color = primaryColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = cardColor),
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp)
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            if (!isImmersiveMode) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = cardColor),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .wrapContentHeight()
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp).padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = "${currentIndex + 1} / ${lines.size} segments",
-                            color = primaryColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Surface(
-                            color = Color(0xFF374151),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.clickable {
-                                val newSpeed = when (ttsSpeed) { 0.5f -> 1.0f; 1.0f -> 1.5f; 1.5f -> 2.0f; 2.0f -> 3.0f; else -> 0.5f }; viewModel.setTtsSpeed(newSpeed)
-                            }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${String.format("%.1f", ttsSpeed)}x",
-                                color = textColor,
+                                text = "${currentIndex + 1} / ${lines.size} segments",
+                                color = primaryColor,
                                 fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                fontWeight = FontWeight.Bold
                             )
+                            Surface(
+                                color = Color(0xFF374151),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.clickable {
+                                    val newSpeed = when (ttsSpeed) { 0.5f -> 1.0f; 1.0f -> 1.5f; 1.5f -> 2.0f; 2.0f -> 3.0f; else -> 0.5f }; viewModel.setTtsSpeed(newSpeed)
+                                }
+                            ) {
+                                Text(
+                                    text = "${String.format("%.1f", ttsSpeed)}x",
+                                    color = textColor,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
-                    }
 
-                    val progress = if (lines.isNotEmpty()) (currentIndex + 1).toFloat() / lines.size else 0f
-                    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), color = primaryColor, trackColor = Color(0xFF374151))
+                        Slider(
+                            value = sliderPosition,
+                            onValueChange = {
+                                isDragging = true
+                                sliderPosition = it
+                            },
+                            onValueChangeFinished = {
+                                coroutineScope.launch {
+                                    listState.animateScrollToItem(sliderPosition.toInt())
+                                }
+                                isDragging = false
+                            },
+                            valueRange = 0f..lines.lastIndex.toFloat().coerceAtLeast(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = primaryColor,
+                                inactiveTrackColor = Color(0xFF374151)
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(20.dp)
+                        )
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { novel?.let { if (it.currentChapterIndex > 0) viewModel.playFromIndex(it.currentChapterIndex - 1, autoPlay = true) } }) {
-                            Icon(Icons.Default.SkipPrevious, contentDescription = "prev", tint = secondaryColor)
-                        }
-                        Box(modifier = Modifier.size(56.dp).background(primaryColor, CircleShape).clickable { viewModel.togglePlayPause() }, contentAlignment = Alignment.Center) {
-                            if (uiState is UiState.Loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                            else if (isPlaying) Icon(painter = painterResource(android.R.drawable.ic_media_pause), contentDescription = "pause", tint = Color.White)
-                            else Icon(Icons.Default.PlayArrow, contentDescription = "play", tint = Color.White)
-                        }
-                        IconButton(onClick = { novel?.let { if (it.currentChapterIndex < (chapters.size - 1)) viewModel.playFromIndex(it.currentChapterIndex + 1, autoPlay = true) } }) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "next", tint = secondaryColor)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { novel?.let { if (it.currentChapterIndex > 0) viewModel.playFromIndex(it.currentChapterIndex - 1, autoPlay = true) } }) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = "prev", tint = secondaryColor)
+                            }
+                            Box(modifier = Modifier.size(56.dp).background(primaryColor, CircleShape).clickable { viewModel.togglePlayPause() }, contentAlignment = Alignment.Center) {
+                                if (uiState is UiState.Loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                                else if (isPlaying) Icon(painter = painterResource(android.R.drawable.ic_media_pause), contentDescription = "pause", tint = Color.White)
+                                else Icon(Icons.Default.PlayArrow, contentDescription = "play", tint = Color.White)
+                            }
+                            IconButton(onClick = { novel?.let { if (it.currentChapterIndex < (chapters.size - 1)) viewModel.playFromIndex(it.currentChapterIndex + 1, autoPlay = true) } }) {
+                                Icon(Icons.Default.SkipNext, contentDescription = "next", tint = secondaryColor)
+                            }
                         }
                     }
                 }
+            }
+
+            SmallFloatingActionButton(
+                onClick = { isImmersiveMode = !isImmersiveMode },
+                containerColor = primaryColor,
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = if (isImmersiveMode) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Toggle Immersive",
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }

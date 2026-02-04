@@ -27,6 +27,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,8 +48,9 @@ fun LibraryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Recent") }
 
+    var showOptionsDialog by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf(false) }
-    var selectedNovelForDownload by remember { mutableStateOf<Novel?>(null) }
+    var selectedNovel by remember { mutableStateOf<Novel?>(null) }
 
     val filteredNovels = remember(novels, downloadedNovels, searchQuery, selectedTab) {
         var result = if (selectedTab == "Downloaded") downloadedNovels else novels
@@ -67,13 +69,96 @@ fun LibraryScreen(
     val primaryColor = Color(0xFF3B82F6)
     val textColor = Color(0xFFF9FAFB)
     val secondaryTextColor = Color(0xFF9CA3AF)
+    val dangerColor = Color(0xFFEF4444)
 
-    if (showDownloadDialog && selectedNovelForDownload != null) {
+    if (showOptionsDialog && selectedNovel != null) {
+        val isInstalled = downloadedNovels.any { it.id == selectedNovel!!.id }
+
+        AlertDialog(
+            onDismissRequest = { showOptionsDialog = false },
+            containerColor = surfaceColor,
+            title = {
+                Text(
+                    text = selectedNovel!!.title,
+                    color = textColor,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            viewModel.removeFromLibrary(selectedNovel!!.id)
+                            showOptionsDialog = false
+                            selectedNovel = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(12.dp)
+                    ) {
+                        Text(
+                            text = "Remove from library",
+                            color = dangerColor,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+
+                    TextButton(
+                        onClick = {
+                            showOptionsDialog = false
+                            showDownloadDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(12.dp)
+                    ) {
+                        Text(
+                            text = "Download chapters",
+                            color = textColor,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    TextButton(
+                        onClick = {
+                            viewModel.uninstallChapters(selectedNovel!!.id)
+                            showOptionsDialog = false
+                        },
+                        enabled = isInstalled,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(12.dp)
+                    ) {
+                        Text(
+                            text = "Uninstall chapters",
+                            color = if (isInstalled) textColor else Color.Gray,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showOptionsDialog = false }) {
+                    Text("Close", color = secondaryTextColor)
+                }
+            }
+        )
+    }
+
+    if (showDownloadDialog && selectedNovel != null) {
         DownloadDialog(
-            novel = selectedNovelForDownload!!,
+            novel = selectedNovel!!,
             onDismiss = { showDownloadDialog = false },
             onDownload = { limit, mode ->
-                viewModel.downloadNovel(selectedNovelForDownload!!.id, limit, mode)
+                viewModel.downloadNovel(selectedNovel!!.id, limit, mode)
                 showDownloadDialog = false
             }
         )
@@ -165,8 +250,8 @@ fun LibraryScreen(
                             onBookSelected(novel.id)
                         },
                         onOptionClick = {
-                            selectedNovelForDownload = novel
-                            showDownloadDialog = true
+                            selectedNovel = novel
+                            showOptionsDialog = true
                         },
                         surfaceColor = surfaceColor, textColor = textColor, primaryColor = primaryColor
                     )

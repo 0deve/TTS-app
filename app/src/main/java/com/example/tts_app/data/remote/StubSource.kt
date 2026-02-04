@@ -15,4 +15,8 @@ class StubSource : NovelSource {
     override suspend fun getChapterContent(chapterUrl: String): String {
         return "This is a placeholder source"
     }
+
+    override suspend fun getChaptersBatch(novelUrl: String, page: Int): List<Chapter> {
+        return emptyList()
+    }
 }

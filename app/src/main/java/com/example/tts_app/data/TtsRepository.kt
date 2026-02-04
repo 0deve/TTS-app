@@ -41,7 +41,7 @@ class TtsRepository(
     }
 
     suspend fun addToLibrary(novel: Novel) {
-        val (metadata, chapters) = scraper.getNovelDetails(novel.url)
+        val (metadata, firstBatch) = scraper.getNovelDetails(novel.url)
 
         val existing = bookDao.getNovelByUrl(novel.url)
         val novelId = if (existing != null) {
@@ -50,7 +50,7 @@ class TtsRepository(
                 coverUrl = if (metadata.coverUrl.isNotEmpty()) metadata.coverUrl else existing.coverUrl,
                 author = if (metadata.author.isNotEmpty()) metadata.author else existing.author,
                 summary = if (metadata.summary.isNotEmpty()) metadata.summary else existing.summary,
-                totalChapters = chapters.size
+                totalChapters = if (metadata.totalChapters > 0) metadata.totalChapters else firstBatch.size
             )
             bookDao.updateNovel(updated)
             existing.id
@@ -60,12 +60,46 @@ class TtsRepository(
                 coverUrl = metadata.coverUrl,
                 author = metadata.author,
                 summary = metadata.summary,
-                totalChapters = chapters.size
+                totalChapters = if (metadata.totalChapters > 0) metadata.totalChapters else firstBatch.size
             )).toInt()
         }
 
-        val chaptersWithId = chapters.map { it.copy(novelId = novelId) }
-        bookDao.insertChapters(chaptersWithId)
+        if (firstBatch.isNotEmpty()) {
+            val chaptersWithId = firstBatch.mapIndexed { index, chapter ->
+                chapter.copy(novelId = novelId, index = index)
+            }
+            bookDao.insertChapters(chaptersWithId)
+        }
+    }
+
+    suspend fun loadMoreChapters(novelId: Int): Int {
+        val novel = bookDao.getNovelById(novelId) ?: return 0
+        val currentChapters = bookDao.getChapterList(novelId)
+
+
+        val pageSize = 50
+        val pageToFetch = (currentChapters.size / 100) + 1
+
+        if (currentChapters.size >= novel.totalChapters && novel.totalChapters > 0) return 0
+
+        val newChapters = scraper.getChaptersBatch(novel.url, pageToFetch)
+
+        if (newChapters.isNotEmpty()) {
+            val startIndex = currentChapters.size
+            val chaptersWithId = newChapters.mapIndexed { index, chapter ->
+                chapter.copy(novelId = novelId, index = startIndex + index)
+            }
+
+            val uniqueChapters = chaptersWithId.filter { newCh ->
+                currentChapters.none { it.url == newCh.url }
+            }
+
+            if (uniqueChapters.isNotEmpty()) {
+                bookDao.insertChapters(uniqueChapters)
+                return uniqueChapters.size
+            }
+        }
+        return 0
     }
 
     suspend fun downloadChapterContent(chapterId: Int): String {

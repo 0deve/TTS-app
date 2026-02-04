@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,6 +36,7 @@ fun NovelDetailsScreen(
     val novel by viewModel.activeNovel.collectAsState()
     val chapters by viewModel.activeChapters.collectAsState()
     val isAscending by viewModel.isChapterSortAscending.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
 
     val displayChapters = remember(chapters, isAscending) { if (isAscending) chapters else chapters.sortedByDescending { it.index } }
     val bgColor = Color(0xFF111827); val surfaceColor = Color(0xFF1F2937); val textColor = Color(0xFFF9FAFB); val primaryColor = Color(0xFF3B82F6); val secondaryColor = Color(0xFF9CA3AF); val readColor = Color(0xFF6B7280)
@@ -51,8 +53,44 @@ fun NovelDetailsScreen(
                     Button(onClick = { viewModel.playFromIndex(novel!!.currentChapterIndex, autoPlay = false); onPlayChapter(novel!!.currentChapterIndex) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.PlayArrow, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text(text = "Continue Reading") }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Row(modifier = Modifier.fillMaxWidth().background(surfaceColor).padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(text = "Chapters", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = textColor); IconButton(onClick = { viewModel.toggleChapterSort() }) { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort", tint = textColor) } }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(surfaceColor).padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "Chapters", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = textColor)
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (chapters.size < novel!!.totalChapters) {
+                            TextButton(onClick = { viewModel.loadAllChapters() }, enabled = !isLoadingMore) {
+                                Text(if (isLoadingMore) "Loading..." else "Try to load all", fontSize = 12.sp, color = primaryColor)
+                            }
+                        }
+                        IconButton(onClick = { viewModel.toggleChapterSort() }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort", tint = textColor)
+                        }
+                    }
+                }
+
                 LazyColumn {
+                    if (!isAscending && chapters.size < novel!!.totalChapters) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                if (isLoadingMore) {
+                                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(24.dp))
+                                } else {
+                                    Button(
+                                        onClick = { viewModel.loadMoreChapters() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = surfaceColor)
+                                    ) {
+                                        Text("Load More Chapters", color = textColor)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     items(displayChapters) { chapter ->
                         val isRead = chapter.index < novel!!.currentChapterIndex; val isCurrent = chapter.index == novel!!.currentChapterIndex; val itemColor = when { isCurrent -> primaryColor; isRead -> readColor; else -> textColor }
                         Column(modifier = Modifier.fillMaxWidth().clickable { viewModel.playFromIndex(chapter.index, autoPlay = false); onPlayChapter(chapter.index) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -63,6 +101,23 @@ fun NovelDetailsScreen(
                             }
                         }
                         Divider(color = surfaceColor, thickness = 1.dp)
+                    }
+
+                    if (isAscending && chapters.size < novel!!.totalChapters) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                if (isLoadingMore) {
+                                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(24.dp))
+                                } else {
+                                    Button(
+                                        onClick = { viewModel.loadMoreChapters() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = surfaceColor)
+                                    ) {
+                                        Text("Load More Chapters", color = textColor)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

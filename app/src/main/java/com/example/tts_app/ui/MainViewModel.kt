@@ -62,6 +62,9 @@ class MainViewModel(
     private val _isChapterSortAscending = MutableStateFlow(true)
     val isChapterSortAscending = _isChapterSortAscending.asStateFlow()
 
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore = _isLoadingMore.asStateFlow()
+
     private var downloadJob: Job? = null
     private var novelJob: Job? = null
 
@@ -90,6 +93,44 @@ class MainViewModel(
         }
     }
 
+    fun loadMoreChapters() {
+        val novel = _activeNovel.value ?: return
+        if (_isLoadingMore.value) return
+
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                repository.loadMoreChapters(novel.id)
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error("Failed to load more chapters")
+            } finally {
+                _isLoadingMore.value = false
+            }
+        }
+    }
+
+    fun loadAllChapters() {
+        val novel = _activeNovel.value ?: return
+        if (_isLoadingMore.value) return
+
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                var addedCount = 1
+                while (addedCount > 0) {
+                    val currentCount = bookDao.getChapterList(novel.id).size
+                    if (novel.totalChapters > 0 && currentCount >= novel.totalChapters) break
+
+                    addedCount = repository.loadMoreChapters(novel.id)
+                }
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error("Failed to load all chapters")
+            } finally {
+                _isLoadingMore.value = false
+            }
+        }
+    }
+
     fun toggleChapterSort() { _isChapterSortAscending.value = !_isChapterSortAscending.value }
 
     fun downloadSingleChapter(chapter: Chapter) {
@@ -104,6 +145,10 @@ class MainViewModel(
 
         val chapter = _activeChapters.value.find { it.index == chapterIndex } ?: return
         loadChapterContent(chapter, autoPlay)
+
+        if (chapterIndex >= _activeChapters.value.size - 5) {
+            loadMoreChapters()
+        }
     }
 
     fun onSegmentClick(index: Int) {
@@ -178,7 +223,29 @@ class MainViewModel(
 
     private fun playNextSegment() {
         viewModelScope.launch(Dispatchers.Main) {
-            if(_isPlaying.value) playAudioSegment(_currentPlaybackIndex.value + 1)
+            if (!_isPlaying.value) return@launch
+
+            val nextIndex = _currentPlaybackIndex.value + 1
+            if (nextIndex < playbackQueue.size) {
+                playAudioSegment(nextIndex)
+            } else {
+                val novel = _activeNovel.value
+                val chapters = _activeChapters.value
+                if (novel != null && chapters.isNotEmpty()) {
+                    val nextChapterIndex = novel.currentChapterIndex + 1
+                    val nextChapter = chapters.find { it.index == nextChapterIndex }
+                    if (nextChapter != null) {
+                        playFromIndex(nextChapterIndex, autoPlay = true)
+                    } else {
+                        if (chapters.size < novel.totalChapters) {
+                            loadMoreChapters()
+                        }
+                        stopAudio()
+                    }
+                } else {
+                    stopAudio()
+                }
+            }
         }
     }
 
@@ -215,6 +282,14 @@ class MainViewModel(
     fun cancelDownload() { downloadJob?.cancel(); _downloadProgress.value = null }
     fun searchNovels(query: String, onResult: (List<Novel>) -> Unit) { viewModelScope.launch { onResult(repository.searchRemoteNovels(query)) } }
     fun addToLibrary(novel: Novel) { viewModelScope.launch { repository.addToLibrary(novel) } }
+    fun removeFromLibrary(novelId: Int) { viewModelScope.launch { bookDao.deleteNovel(novelId) } }
+    fun uninstallChapters(novelId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val chapters = bookDao.getChapterList(novelId)
+            val updated = chapters.map { it.copy(content = "", isDownloaded = false) }
+            bookDao.insertChapters(updated)
+        }
+    }
     fun setTtsMode(enabled: Boolean) { _isServerTtsEnabled.value = enabled; stopAudio() }
     fun setFontSize(size: Float) { _fontSize.value = size }
     fun setTtsSpeed(speed: Float) { _ttsSpeed.value = speed; if(!_isServerTtsEnabled.value) localTts.setSpeed(speed) }
