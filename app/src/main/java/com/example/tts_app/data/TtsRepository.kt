@@ -1,5 +1,6 @@
 package com.example.tts_app.data
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.tts_app.api.AllTalkApi
 import com.example.tts_app.data.local.BookDao
@@ -13,13 +14,17 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
+import org.json.JSONArray
+import org.json.JSONObject
 import retrofit2.Retrofit
+import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 class TtsRepository(
-    context: Context,
+    private val context: Context,
     private val bookDao: BookDao
 ) {
     private var api: AllTalkApi? = null
@@ -50,6 +55,7 @@ class TtsRepository(
                 coverUrl = if (metadata.coverUrl.isNotEmpty()) metadata.coverUrl else existing.coverUrl,
                 author = if (metadata.author.isNotEmpty()) metadata.author else existing.author,
                 summary = if (metadata.summary.isNotEmpty()) metadata.summary else existing.summary,
+                status = if (metadata.status.isNotEmpty() && metadata.status != "Unknown") metadata.status else existing.status,
                 totalChapters = if (metadata.totalChapters > 0) metadata.totalChapters else firstBatch.size
             )
             bookDao.updateNovel(updated)
@@ -60,6 +66,7 @@ class TtsRepository(
                 coverUrl = metadata.coverUrl,
                 author = metadata.author,
                 summary = metadata.summary,
+                status = metadata.status,
                 totalChapters = if (metadata.totalChapters > 0) metadata.totalChapters else firstBatch.size
             )).toInt()
         }
@@ -76,11 +83,7 @@ class TtsRepository(
         val novel = bookDao.getNovelById(novelId) ?: return 0
         val currentChapters = bookDao.getChapterList(novelId)
 
-
-        val pageSize = 50
         val pageToFetch = (currentChapters.size / 100) + 1
-
-        if (currentChapters.size >= novel.totalChapters && novel.totalChapters > 0) return 0
 
         val newChapters = scraper.getChaptersBatch(novel.url, pageToFetch)
 
@@ -96,6 +99,12 @@ class TtsRepository(
 
             if (uniqueChapters.isNotEmpty()) {
                 bookDao.insertChapters(uniqueChapters)
+
+                val newTotal = currentChapters.size + uniqueChapters.size
+                if (newTotal > novel.totalChapters) {
+                    bookDao.updateNovel(novel.copy(totalChapters = newTotal))
+                }
+
                 return uniqueChapters.size
             }
         }
@@ -182,16 +191,35 @@ class TtsRepository(
         }
     }
 
-    suspend fun fetchAudioFromServer(text: String): Result<File> {
+    suspend fun fetchAudioFromServer(text: String, voice: String): Result<File> {
         return withContext(Dispatchers.IO) {
             val currentApi = api ?: return@withContext Result.failure(Exception("Invalid Server URL"))
             try {
-                currentApi.generateAudio(text, "male_04.wav", "en", "standard", "false", "female_01.wav")
+                currentApi.generateAudio(text, voice, "en", "standard", "false", "female_01.wav")
                 val response = currentApi.downloadAudio("android_output.wav")
                 val file = saveToTempFile(response)
                 Result.success(file)
             } catch (e: Exception) {
                 Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun getServerVoices(): List<String> {
+        return withContext(Dispatchers.IO) {
+            val currentApi = api ?: return@withContext emptyList()
+            try {
+                val response = currentApi.getVoices()
+                val jsonString = response.string()
+                val jsonArray = JSONArray(jsonString)
+                val voices = mutableListOf<String>()
+                for (i in 0 until jsonArray.length()) {
+                    voices.add(jsonArray.getString(i))
+                }
+                voices.sorted()
+            } catch (e: Exception) {
+                Log.e("TTS_REPO", "Failed to fetch voices: ${e.message}")
+                listOf("male_04.wav", "female_01.wav")
             }
         }
     }
@@ -202,5 +230,106 @@ class TtsRepository(
         val outputStream = FileOutputStream(file)
         inputStream.use { input -> outputStream.use { output -> input.copyTo(output) } }
         return file
+    }
+
+    suspend fun backupLibrary(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val novels = bookDao.getAllNovelsSync()
+            val chapters = bookDao.getAllChaptersSync()
+
+            val root = JSONObject()
+            val novelsArray = JSONArray()
+            novels.forEach { novel ->
+                val nObj = JSONObject()
+                nObj.put("id", novel.id)
+                nObj.put("url", novel.url)
+                nObj.put("title", novel.title)
+                nObj.put("coverUrl", novel.coverUrl)
+                nObj.put("author", novel.author)
+                nObj.put("summary", novel.summary)
+                nObj.put("status", novel.status)
+                nObj.put("inLibrary", novel.inLibrary)
+                nObj.put("totalChapters", novel.totalChapters)
+                nObj.put("currentChapterIndex", novel.currentChapterIndex)
+                novelsArray.put(nObj)
+            }
+
+            val chaptersArray = JSONArray()
+            chapters.forEach { chapter ->
+                val cObj = JSONObject()
+                cObj.put("novelId", chapter.novelId)
+                cObj.put("index", chapter.index)
+                cObj.put("title", chapter.title)
+                cObj.put("url", chapter.url)
+                cObj.put("content", chapter.content)
+                cObj.put("isDownloaded", chapter.isDownloaded)
+                chaptersArray.put(cObj)
+            }
+
+            root.put("novels", novelsArray)
+            root.put("chapters", chaptersArray)
+
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                output.write(root.toString().toByteArray())
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("Backup", "Backup failed", e)
+            false
+        }
+    }
+
+    suspend fun restoreLibrary(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val stringBuilder = StringBuilder()
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BufferedReader(InputStreamReader(input)).use { reader ->
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        stringBuilder.append(line)
+                    }
+                }
+            }
+            val json = JSONObject(stringBuilder.toString())
+            val novelsArray = json.getJSONArray("novels")
+            val chaptersArray = json.getJSONArray("chapters")
+
+            val novels = mutableListOf<Novel>()
+            for (i in 0 until novelsArray.length()) {
+                val obj = novelsArray.getJSONObject(i)
+                novels.add(Novel(
+                    id = obj.getInt("id"),
+                    url = obj.getString("url"),
+                    title = obj.getString("title"),
+                    coverUrl = obj.optString("coverUrl"),
+                    author = obj.optString("author"),
+                    summary = obj.optString("summary"),
+                    status = obj.optString("status", "Unknown"),
+                    inLibrary = obj.getBoolean("inLibrary"),
+                    totalChapters = obj.getInt("totalChapters"),
+                    currentChapterIndex = obj.getInt("currentChapterIndex")
+                ))
+            }
+
+            val chapters = mutableListOf<Chapter>()
+            for (i in 0 until chaptersArray.length()) {
+                val obj = chaptersArray.getJSONObject(i)
+                chapters.add(Chapter(
+                    novelId = obj.getInt("novelId"),
+                    index = obj.getInt("index"),
+                    title = obj.getString("title"),
+                    url = obj.getString("url"),
+                    content = obj.optString("content"),
+                    isDownloaded = obj.getBoolean("isDownloaded")
+                ))
+            }
+
+            novels.forEach { bookDao.insertNovel(it) }
+            bookDao.insertChapters(chapters)
+            true
+        } catch (e: Exception) {
+            Log.e("Restore", "Restore failed", e)
+            false
+        }
     }
 }

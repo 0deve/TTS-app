@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -42,6 +43,10 @@ fun ReaderScreen(
     val isPlaying by viewModel.isPlaying.collectAsState()
     val ttsSpeed by viewModel.ttsSpeed.collectAsState()
     val fontSize by viewModel.fontSize.collectAsState()
+    val lineHeightMultiplier by viewModel.lineHeightMultiplier.collectAsState()
+    val textMargin by viewModel.textMargin.collectAsState()
+    val fontFamily by viewModel.fontFamily.collectAsState()
+    val isOled by viewModel.isOledMode.collectAsState()
 
     DisposableEffect(Unit) {
         onDispose {
@@ -75,11 +80,12 @@ fun ReaderScreen(
         }
     }
 
-    val bgColor = Color(0xFF111827)
-    val cardColor = Color(0xFF1F2937)
+    val bgColor = if (isOled) Color.Black else Color(0xFF111827)
+    val cardColor = if (isOled) Color(0xFF121212) else Color(0xFF1F2937)
     val primaryColor = Color(0xFF3B82F6)
     val textColor = Color(0xFFF9FAFB)
     val secondaryColor = Color(0xFF9CA3AF)
+    val errorColor = Color(0xFFEF4444)
 
     Scaffold(
         containerColor = bgColor,
@@ -121,11 +127,11 @@ fun ReaderScreen(
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (uiState is UiState.Loading) {
+            if (uiState is UiState.Loading && lines.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = primaryColor)
                 }
-            } else if (lines.isEmpty()) {
+            } else if (lines.isEmpty() && uiState !is UiState.Error) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No content loaded.", color = secondaryColor)
                 }
@@ -134,7 +140,7 @@ fun ReaderScreen(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = textMargin.dp),
                     contentPadding = PaddingValues(
                         top = 20.dp,
                         bottom = if (isImmersiveMode) 80.dp else 240.dp
@@ -153,7 +159,8 @@ fun ReaderScreen(
                                 text = line,
                                 color = if (isActive) primaryColor else textColor,
                                 fontSize = fontSize.sp,
-                                lineHeight = (fontSize + 10).sp,
+                                lineHeight = (fontSize * lineHeightMultiplier).sp,
+                                fontFamily = fontFamily,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(if (isActive) primaryColor.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(4.dp))
@@ -185,6 +192,29 @@ fun ReaderScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            if (uiState is UiState.Error) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = errorColor),
+                    modifier = Modifier.align(Alignment.Center).padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text((uiState as UiState.Error).message, color = Color.White)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.retryAudio() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = errorColor)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Retry", color = errorColor)
                         }
                     }
                 }

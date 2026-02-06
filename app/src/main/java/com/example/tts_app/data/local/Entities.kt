@@ -13,10 +13,12 @@ data class Novel(
     val coverUrl: String = "",
     val author: String = "",
     val summary: String = "",
+    val status: String = "Unknown",
     val inLibrary: Boolean = false,
     val totalChapters: Int = 0,
     val currentChapterIndex: Int = 0,
-    val lastAccessed: Long = System.currentTimeMillis()
+    val lastAccessed: Long = System.currentTimeMillis(),
+    val hasUnseenUpdates: Boolean = false
 )
 
 @Entity(

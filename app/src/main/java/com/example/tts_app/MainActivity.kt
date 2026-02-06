@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.view.WindowCompat
@@ -22,8 +25,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.statusBarColor = Color.parseColor("#111827")
-        window.navigationBarColor = Color.parseColor("#111827")
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
@@ -41,8 +42,18 @@ class MainActivity : ComponentActivity() {
         val viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
         setContent {
+            val isOled by viewModel.isOledMode.collectAsState()
+
+            LaunchedEffect(isOled) {
+                window.statusBarColor = if (isOled) Color.BLACK else Color.parseColor("#111827")
+                window.navigationBarColor = if (isOled) Color.BLACK else Color.parseColor("#111827")
+            }
+
             MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize(), color = ComposeColor(0xFF111827)) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = if (isOled) ComposeColor.Black else ComposeColor(0xFF111827)
+                ) {
                     AppNavigation(viewModel)
                 }
             }

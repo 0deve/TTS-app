@@ -37,9 +37,12 @@ fun NovelDetailsScreen(
     val chapters by viewModel.activeChapters.collectAsState()
     val isAscending by viewModel.isChapterSortAscending.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val isOled by viewModel.isOledMode.collectAsState()
 
     val displayChapters = remember(chapters, isAscending) { if (isAscending) chapters else chapters.sortedByDescending { it.index } }
-    val bgColor = Color(0xFF111827); val surfaceColor = Color(0xFF1F2937); val textColor = Color(0xFFF9FAFB); val primaryColor = Color(0xFF3B82F6); val secondaryColor = Color(0xFF9CA3AF); val readColor = Color(0xFF6B7280)
+    val bgColor = if (isOled) Color.Black else Color(0xFF111827)
+    val surfaceColor = if (isOled) Color(0xFF121212) else Color(0xFF1F2937)
+    val textColor = Color(0xFFF9FAFB); val primaryColor = Color(0xFF3B82F6); val secondaryColor = Color(0xFF9CA3AF); val readColor = Color(0xFF6B7280)
 
     Scaffold(containerColor = bgColor, topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)) }) { padding ->
         if (novel == null) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = primaryColor) } } else {
@@ -47,7 +50,17 @@ fun NovelDetailsScreen(
                 Row(modifier = Modifier.padding(16.dp)) {
                     Box(modifier = Modifier.width(100.dp).aspectRatio(0.7f).clip(RoundedCornerShape(8.dp)).background(surfaceColor)) { if (novel!!.coverUrl.isNotEmpty()) AsyncImage(model = novel!!.coverUrl, contentDescription = "Cover", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Column(verticalArrangement = Arrangement.Center) { Text(text = novel!!.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textColor, maxLines = 3, overflow = TextOverflow.Ellipsis); Spacer(modifier = Modifier.height(8.dp)); Text(text = novel!!.author.ifEmpty { "Unknown Author" }, fontSize = 14.sp, color = secondaryColor); Spacer(modifier = Modifier.height(4.dp)); Text(text = "${novel!!.totalChapters} Chapters", fontSize = 14.sp, color = secondaryColor) }
+                    Column(verticalArrangement = Arrangement.Center) {
+                        Text(text = novel!!.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textColor, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = novel!!.author.ifEmpty { "Unknown Author" }, fontSize = 14.sp, color = secondaryColor)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "${novel!!.totalChapters} Chapters", fontSize = 14.sp, color = secondaryColor)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (novel!!.status.isNotEmpty() && novel!!.status != "Unknown") {
+                            Text(text = "Status: ${novel!!.status}", fontSize = 14.sp, color = if (novel!!.status.equals("Ongoing", true)) primaryColor else Color.Green)
+                        }
+                    }
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Button(onClick = { viewModel.playFromIndex(novel!!.currentChapterIndex, autoPlay = false); onPlayChapter(novel!!.currentChapterIndex) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.PlayArrow, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text(text = "Continue Reading") }
@@ -62,7 +75,7 @@ fun NovelDetailsScreen(
                     Text(text = "Chapters", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = textColor)
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (chapters.size < novel!!.totalChapters) {
+                        if (chapters.size < novel!!.totalChapters || novel!!.totalChapters == 0) {
                             TextButton(onClick = { viewModel.loadAllChapters() }, enabled = !isLoadingMore) {
                                 Text(if (isLoadingMore) "Loading..." else "Try to load all", fontSize = 12.sp, color = primaryColor)
                             }
@@ -74,7 +87,7 @@ fun NovelDetailsScreen(
                 }
 
                 LazyColumn {
-                    if (!isAscending && chapters.size < novel!!.totalChapters) {
+                    if (!isAscending && (chapters.size < novel!!.totalChapters || novel!!.totalChapters == 0)) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 if (isLoadingMore) {
@@ -103,7 +116,7 @@ fun NovelDetailsScreen(
                         Divider(color = surfaceColor, thickness = 1.dp)
                     }
 
-                    if (isAscending && chapters.size < novel!!.totalChapters) {
+                    if (isAscending && (chapters.size < novel!!.totalChapters || novel!!.totalChapters == 0)) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 if (isLoadingMore) {

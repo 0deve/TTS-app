@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -44,6 +45,7 @@ fun LibraryScreen(
     val novels by viewModel.libraryNovels.collectAsState()
     val downloadedNovels by viewModel.downloadedNovels.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
+    val isOled by viewModel.isOledMode.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Recent") }
@@ -64,8 +66,8 @@ fun LibraryScreen(
         result
     }
 
-    val bgColor = Color(0xFF111827)
-    val surfaceColor = Color(0xFF1F2937)
+    val bgColor = if (isOled) Color.Black else Color(0xFF111827)
+    val surfaceColor = if (isOled) Color(0xFF121212) else Color(0xFF1F2937)
     val primaryColor = Color(0xFF3B82F6)
     val textColor = Color(0xFFF9FAFB)
     val secondaryTextColor = Color(0xFF9CA3AF)
@@ -311,6 +313,13 @@ fun NovelCardItem(
                     Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White)
                 }
             }
+            if (novel.hasUnseenUpdates) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
+                    Box(modifier = Modifier.padding(4.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50)).padding(4.dp)) {
+                        Icon(Icons.Default.Notifications, contentDescription = "Updates", tint = Color.Yellow, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
             if (novel.coverUrl.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color(0xFF4B5563), surfaceColor))), contentAlignment = Alignment.Center) {
                     Text(text = novel.title, modifier = Modifier.padding(8.dp), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -319,7 +328,7 @@ fun NovelCardItem(
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(text = novel.title, color = textColor, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(text = "${novel.totalChapters} Ch", color = primaryColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(text = "${novel.currentChapterIndex + 1} / ${novel.totalChapters} Ch", color = primaryColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -327,9 +336,10 @@ fun NovelCardItem(
 fun RowScope.TabButton(
     text: String, isSelected: Boolean, activeColor: Color, textColor: Color, bgColor: Color, onClick: () -> Unit
 ) {
+    val selectedBg = if (bgColor == Color(0xFF121212)) Color(0xFF333333) else Color(0xFF111827)
     Box(
         modifier = Modifier.weight(1f).height(32.dp).clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) Color(0xFF111827) else Color.Transparent)
+            .background(if (isSelected) selectedBg else Color.Transparent)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {

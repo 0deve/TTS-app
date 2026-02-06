@@ -77,4 +77,6 @@ dependencies {
 
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }

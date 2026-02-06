@@ -43,4 +43,10 @@ interface BookDao {
 
     @Update
     suspend fun updateChapter(chapter: Chapter)
+
+    @Query("SELECT * FROM novels")
+    suspend fun getAllNovelsSync(): List<Novel>
+
+    @Query("SELECT * FROM chapters")
+    suspend fun getAllChaptersSync(): List<Chapter>
 }

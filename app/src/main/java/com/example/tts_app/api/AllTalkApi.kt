@@ -19,16 +19,16 @@ interface AllTalkApi {
         @Field("narrator_enabled") narratorEnabled: String = "false",
         @Field("narrator_voice_gen") narratorVoice: String,
         @Field("text_not_inside") textNotInside: String = "character",
-
         @Field("output_file_name") outputFileName: String = "android_output",
-
         @Field("output_file_timestamp") outputFileTimestamp: String = "false",
-
         @Field("autoplay") autoplay: String = "false",
         @Field("autoplay_volume") autoplayVolume: String = "0.8"
-
     ): ResponseBody
+
     @Streaming
     @GET("audio/{filename}")
     suspend fun downloadAudio(@Path("filename") filename: String): ResponseBody
+
+    @GET("api/voices")
+    suspend fun getVoices(): ResponseBody
 }

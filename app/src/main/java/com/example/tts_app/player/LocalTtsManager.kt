@@ -3,6 +3,7 @@ package com.example.tts_app.player
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.util.Log
 import java.util.Locale
 
@@ -66,5 +67,24 @@ class LocalTtsManager(context: Context) : TextToSpeech.OnInitListener {
 
     fun shutdown() {
         tts?.shutdown()
+    }
+
+    fun getAvailableVoices(): List<String> {
+        return try {
+            tts?.voices?.map { it.name }?.sorted() ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun setVoice(voiceName: String) {
+        try {
+            val voice = tts?.voices?.find { it.name == voiceName }
+            if (voice != null) {
+                tts?.voice = voice
+            }
+        } catch (e: Exception) {
+            Log.e("LOCAL_TTS", "Failed to set voice: $voiceName")
+        }
     }
 }

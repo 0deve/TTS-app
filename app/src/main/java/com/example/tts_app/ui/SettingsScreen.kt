@@ -1,7 +1,12 @@
 package com.example.tts_app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
@@ -26,11 +31,26 @@ fun SettingsScreen(
     val fontSize by viewModel.fontSize.collectAsState()
     val serverIp by viewModel.serverIp.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
+    val lineHeight by viewModel.lineHeightMultiplier.collectAsState()
+    val textMargin by viewModel.textMargin.collectAsState()
+    val fontFamilyName by viewModel.fontFamilyName.collectAsState()
+    val fontFamily by viewModel.fontFamily.collectAsState()
+    val availableVoices by viewModel.availableVoices.collectAsState()
+    val selectedVoice by viewModel.selectedVoice.collectAsState()
+    val isOled by viewModel.isOledMode.collectAsState()
+
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { viewModel.backupLibrary(it) }
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.restoreLibrary(it) }
+    }
 
     var testInput by remember { mutableStateOf("Hello, this is a test of the voice system.") }
 
-    val bgColor = Color(0xFF111827)
-    val cardColor = Color(0xFF1F2937)
+    val bgColor = if (isOled) Color.Black else Color(0xFF111827)
+    val cardColor = if (isOled) Color(0xFF121212) else Color(0xFF1F2937)
     val textColor = Color(0xFFF9FAFB)
     val secondaryColor = Color(0xFF9CA3AF)
     val primaryColor = Color(0xFF3B82F6)
@@ -56,11 +76,27 @@ fun SettingsScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
 
             SectionHeader("APPEARANCE", secondaryColor)
             SettingsGroup(cardColor) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("OLED Dark Mode", color = textColor, fontWeight = FontWeight.SemiBold)
+                        Switch(
+                            checked = isOled,
+                            onCheckedChange = { viewModel.setOledMode(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = primaryColor)
+                        )
+                    }
+
+                    Divider(color = bgColor, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -72,16 +108,51 @@ fun SettingsScreen(
                         value = fontSize,
                         onValueChange = { viewModel.setFontSize(it) },
                         valueRange = 12f..32f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = primaryColor
-                        )
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Line Height: ${String.format("%.1f", lineHeight)}", color = textColor)
+                    Slider(
+                        value = lineHeight,
+                        onValueChange = { viewModel.setLineHeight(it) },
+                        valueRange = 1.0f..2.5f,
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Margin: ${textMargin}dp", color = textColor)
+                    Slider(
+                        value = textMargin.toFloat(),
+                        onValueChange = { viewModel.setTextMargin(it.toInt()) },
+                        valueRange = 0f..64f,
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Font Family", color = textColor)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        listOf("Default", "Serif", "SansSerif", "Monospace").forEach { font ->
+                            FilterChip(
+                                selected = fontFamilyName == font,
+                                onClick = { viewModel.setFontFamily(font) },
+                                label = { Text(font) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = primaryColor,
+                                    selectedLabelColor = Color.White,
+                                    labelColor = secondaryColor
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "The quick brown fox jumps over the lazy dog.",
+                        text = "The quick brown fox jumps over the lazy dog.\nThis is a second line to visualize line height and spacing settings.",
                         color = textColor,
                         fontSize = fontSize.sp,
-                        maxLines = 1
+                        fontFamily = fontFamily,
+                        lineHeight = (fontSize * lineHeight).sp
                     )
                 }
             }
@@ -106,11 +177,42 @@ fun SettingsScreen(
                     Switch(
                         checked = isServerEnabled,
                         onCheckedChange = { viewModel.setTtsMode(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = primaryColor
-                        )
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = primaryColor)
                     )
+                }
+
+                Divider(color = bgColor, thickness = 1.dp)
+
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Voice Selection", color = textColor, fontWeight = FontWeight.SemiBold)
+                    if (availableVoices.isNotEmpty()) {
+                        var expanded by remember { mutableStateOf(false) }
+                        Box {
+                            OutlinedButton(
+                                onClick = { expanded = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(selectedVoice, color = textColor)
+                            }
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false },
+                                modifier = Modifier.background(cardColor).heightIn(max = 300.dp)
+                            ) {
+                                availableVoices.forEach { voice ->
+                                    DropdownMenuItem(
+                                        text = { Text(voice, color = textColor) },
+                                        onClick = {
+                                            viewModel.setSelectedVoice(voice)
+                                            expanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text("No voices found or connection failed", color = errorColor, fontSize = 12.sp)
+                    }
                 }
 
                 if (isServerEnabled) {
@@ -157,12 +259,6 @@ fun SettingsScreen(
                                 }
                             }
                         }
-
-                        if (connectionState == ConnectionState.Success) {
-                            Text("Connected successfully", color = successColor, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                        } else if (connectionState == ConnectionState.Failed) {
-                            Text("Connection failed", color = errorColor, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                        }
                     }
                 }
 
@@ -178,10 +274,7 @@ fun SettingsScreen(
                         value = ttsSpeed,
                         onValueChange = { viewModel.setTtsSpeed(it) },
                         valueRange = 0.5f..3.0f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = primaryColor
-                        )
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
                     )
                 }
             }
@@ -217,6 +310,29 @@ fun SettingsScreen(
                         } else {
                             Text("Play Test Audio")
                         }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            SectionHeader("DATA MANAGEMENT", secondaryColor)
+            SettingsGroup(cardColor) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Button(
+                        onClick = { backupLauncher.launch("library_backup.json") },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Backup Library")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { restoreLauncher.launch(arrayOf("application/json")) },
+                        colors = ButtonDefaults.buttonColors(containerColor = secondaryColor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Restore Library")
                     }
                 }
             }

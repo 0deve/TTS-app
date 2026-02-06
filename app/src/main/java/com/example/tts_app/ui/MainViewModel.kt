@@ -1,5 +1,7 @@
 package com.example.tts_app.ui
 
+import android.net.Uri
+import androidx.compose.ui.text.font.FontFamily
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tts_app.data.TtsRepository
@@ -25,8 +27,6 @@ class MainViewModel(
 
     private val _isServerTtsEnabled = MutableStateFlow(true)
     val isServerTtsEnabled = _isServerTtsEnabled.asStateFlow()
-    private val _isDarkMode = MutableStateFlow(true)
-    val isDarkMode = _isDarkMode.asStateFlow()
     private val _ttsSpeed = MutableStateFlow(1.0f)
     val ttsSpeed = _ttsSpeed.asStateFlow()
     private val _fontSize = MutableStateFlow(18f)
@@ -35,6 +35,23 @@ class MainViewModel(
     val serverIp = _serverIp.asStateFlow()
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.None)
     val connectionState = _connectionState.asStateFlow()
+
+    private val _lineHeightMultiplier = MutableStateFlow(1.5f)
+    val lineHeightMultiplier = _lineHeightMultiplier.asStateFlow()
+    private val _textMargin = MutableStateFlow(24)
+    val textMargin = _textMargin.asStateFlow()
+    private val _fontFamily = MutableStateFlow(FontFamily.Default)
+    val fontFamily = _fontFamily.asStateFlow()
+    private val _fontFamilyName = MutableStateFlow("Default")
+    val fontFamilyName = _fontFamilyName.asStateFlow()
+
+    private val _isOledMode = MutableStateFlow(false)
+    val isOledMode = _isOledMode.asStateFlow()
+
+    private val _availableVoices = MutableStateFlow<List<String>>(emptyList())
+    val availableVoices = _availableVoices.asStateFlow()
+    private val _selectedVoice = MutableStateFlow("male_04.wav")
+    val selectedVoice = _selectedVoice.asStateFlow()
 
     val libraryNovels = bookDao.getLibraryNovels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -69,18 +86,38 @@ class MainViewModel(
     private var novelJob: Job? = null
 
     private var playbackQueue: List<String> = emptyList()
+    private var isTestMode = false
 
     init {
         audioPlayer.onCompletionListener = { playNextSegment() }
         localTts.onCompletionListener = { playNextSegment() }
         repository.setServerUrl(_serverIp.value)
+        updateAvailableVoices()
+    }
+
+    private fun updateAvailableVoices() {
+        viewModelScope.launch {
+            if (_isServerTtsEnabled.value) {
+                _availableVoices.value = repository.getServerVoices()
+            } else {
+                _availableVoices.value = localTts.getAvailableVoices()
+            }
+        }
     }
 
     fun openNovelDetails(novelId: Int, filterDownloaded: Boolean = false) {
         novelJob?.cancel()
         novelJob = viewModelScope.launch {
             val novel = bookDao.getNovelById(novelId)
-            _activeNovel.value = novel
+
+            if (novel != null && novel.hasUnseenUpdates) {
+                val updatedNovel = novel.copy(hasUnseenUpdates = false)
+                bookDao.updateNovel(updatedNovel)
+                _activeNovel.value = updatedNovel
+            } else {
+                _activeNovel.value = novel
+            }
+
             if (novel != null) {
                 bookDao.getChapters(novelId).collect { allChapters ->
                     if (filterDownloaded) {
@@ -120,7 +157,6 @@ class MainViewModel(
                 while (addedCount > 0) {
                     val currentCount = bookDao.getChapterList(novel.id).size
                     if (novel.totalChapters > 0 && currentCount >= novel.totalChapters) break
-
                     addedCount = repository.loadMoreChapters(novel.id)
                 }
             } catch (e: Exception) {
@@ -138,6 +174,7 @@ class MainViewModel(
     }
 
     fun playFromIndex(chapterIndex: Int, autoPlay: Boolean = true) {
+        isTestMode = false
         val novel = _activeNovel.value ?: return
         if (novel.currentChapterIndex != chapterIndex) {
             updateProgress(novel, chapterIndex)
@@ -191,6 +228,11 @@ class MainViewModel(
         }
     }
 
+    fun retryAudio() {
+        val index = if (_currentPlaybackIndex.value == -1) 0 else _currentPlaybackIndex.value
+        playAudioSegment(index)
+    }
+
     private fun playAudioSegment(index: Int) {
         if (index >= playbackQueue.size || index < 0) {
             _uiState.value = UiState.Idle
@@ -206,7 +248,7 @@ class MainViewModel(
         if (_isServerTtsEnabled.value) {
             _uiState.value = UiState.Loading
             viewModelScope.launch {
-                repository.fetchAudioFromServer(text).onSuccess { file ->
+                repository.fetchAudioFromServer(text, _selectedVoice.value).onSuccess { file ->
                     if(_isPlaying.value && _currentPlaybackIndex.value == index) {
                         _uiState.value = UiState.Success
                         audioPlayer.playFile(file, _ttsSpeed.value)
@@ -217,6 +259,7 @@ class MainViewModel(
                 }
             }
         } else {
+            localTts.setVoice(_selectedVoice.value)
             localTts.speak(text)
         }
     }
@@ -229,6 +272,10 @@ class MainViewModel(
             if (nextIndex < playbackQueue.size) {
                 playAudioSegment(nextIndex)
             } else {
+                if (isTestMode) {
+                    stopAudio()
+                    return@launch
+                }
                 val novel = _activeNovel.value
                 val chapters = _activeChapters.value
                 if (novel != null && chapters.isNotEmpty()) {
@@ -290,12 +337,50 @@ class MainViewModel(
             bookDao.insertChapters(updated)
         }
     }
-    fun setTtsMode(enabled: Boolean) { _isServerTtsEnabled.value = enabled; stopAudio() }
+    fun setTtsMode(enabled: Boolean) {
+        _isServerTtsEnabled.value = enabled
+        stopAudio()
+        updateAvailableVoices()
+    }
     fun setFontSize(size: Float) { _fontSize.value = size }
     fun setTtsSpeed(speed: Float) { _ttsSpeed.value = speed; if(!_isServerTtsEnabled.value) localTts.setSpeed(speed) }
-    fun updateServerIp(ip: String) { _serverIp.value = ip; repository.setServerUrl(ip) }
-    fun testServerConnection() { viewModelScope.launch { _connectionState.value = ConnectionState.Testing; val s = repository.testConnection(); _connectionState.value = if(s) ConnectionState.Success else ConnectionState.Failed } }
-    fun generateAudio(text: String) { stopAudio(); playbackQueue = listOf(text); playAudioSegment(0) }
+    fun updateServerIp(ip: String) { _serverIp.value = ip; repository.setServerUrl(ip); updateAvailableVoices() }
+    fun testServerConnection() { viewModelScope.launch { _connectionState.value = ConnectionState.Testing; val s = repository.testConnection(); _connectionState.value = if(s) ConnectionState.Success else ConnectionState.Failed; updateAvailableVoices() } }
+
+    fun generateAudio(text: String) {
+        isTestMode = true
+        stopAudio()
+        playbackQueue = listOf(text)
+        playAudioSegment(0)
+    }
+
+    fun setLineHeight(multiplier: Float) { _lineHeightMultiplier.value = multiplier }
+    fun setTextMargin(margin: Int) { _textMargin.value = margin }
+    fun setFontFamily(name: String) {
+        _fontFamilyName.value = name
+        _fontFamily.value = when(name) {
+            "Serif" -> FontFamily.Serif
+            "SansSerif" -> FontFamily.SansSerif
+            "Monospace" -> FontFamily.Monospace
+            else -> FontFamily.Default
+        }
+    }
+
+    fun setSelectedVoice(voice: String) { _selectedVoice.value = voice }
+
+    fun setOledMode(enabled: Boolean) { _isOledMode.value = enabled }
+
+    fun backupLibrary(uri: Uri) {
+        viewModelScope.launch {
+            repository.backupLibrary(uri)
+        }
+    }
+
+    fun restoreLibrary(uri: Uri) {
+        viewModelScope.launch {
+            repository.restoreLibrary(uri)
+        }
+    }
 
     override fun onCleared() { super.onCleared(); audioPlayer.release(); localTts.shutdown() }
 }
