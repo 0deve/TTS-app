@@ -12,7 +12,6 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -108,7 +107,12 @@ fun NovelDetailsScreen(
                         val isRead = chapter.index < novel!!.currentChapterIndex; val isCurrent = chapter.index == novel!!.currentChapterIndex; val itemColor = when { isCurrent -> primaryColor; isRead -> readColor; else -> textColor }
                         Column(modifier = Modifier.fillMaxWidth().clickable { viewModel.playFromIndex(chapter.index, autoPlay = false); onPlayChapter(chapter.index) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                Text(text = chapter.title, color = itemColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = chapter.title, color = itemColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (chapter.releaseDate.isNotEmpty()) {
+                                        Text(text = chapter.releaseDate, color = secondaryColor, fontSize = 10.sp)
+                                    }
+                                }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 if (chapter.isDownloaded) Icon(Icons.Default.CheckCircle, contentDescription = "Downloaded", tint = primaryColor, modifier = Modifier.size(20.dp)) else IconButton(onClick = { viewModel.downloadSingleChapter(chapter) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Download, contentDescription = "Download", tint = secondaryColor) }
                             }

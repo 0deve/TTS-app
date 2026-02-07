@@ -3,7 +3,6 @@ package com.example.tts_app.player
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.speech.tts.Voice
 import android.util.Log
 import java.util.Locale
 
@@ -12,6 +11,7 @@ class LocalTtsManager(context: Context) : TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var isInitialized = false
     var onCompletionListener: (() -> Unit)? = null
+    var onInitSuccess: (() -> Unit)? = null
 
     init {
         tts = TextToSpeech(context, this)
@@ -25,6 +25,7 @@ class LocalTtsManager(context: Context) : TextToSpeech.OnInitListener {
             } else {
                 isInitialized = true
                 setupListener()
+                onInitSuccess?.invoke()
             }
         } else {
             Log.e("LOCAL_TTS", "Error")
@@ -48,6 +49,12 @@ class LocalTtsManager(context: Context) : TextToSpeech.OnInitListener {
     fun setSpeed(speed: Float) {
         if (isInitialized) {
             tts?.setSpeechRate(speed)
+        }
+    }
+
+    fun setPitch(pitch: Float) {
+        if (isInitialized) {
+            tts?.setPitch(pitch)
         }
     }
 

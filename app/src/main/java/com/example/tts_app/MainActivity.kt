@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.work.WorkManager
+import com.example.tts_app.data.PreferencesManager
 import com.example.tts_app.data.TtsRepository
 import com.example.tts_app.data.local.AppDatabase
 import com.example.tts_app.player.AudioPlayerManager
@@ -34,11 +36,13 @@ class MainActivity : ComponentActivity() {
         val bookDao = database.bookDao()
 
         val repository = TtsRepository(applicationContext, bookDao)
+        val preferencesManager = PreferencesManager(applicationContext)
 
         val audioPlayer = AudioPlayerManager(applicationContext)
         val localTts = LocalTtsManager(applicationContext)
+        val workManager = WorkManager.getInstance(applicationContext)
 
-        val factory = MainViewModelFactory(repository, audioPlayer, localTts, bookDao)
+        val factory = MainViewModelFactory(repository, audioPlayer, localTts, bookDao, workManager, preferencesManager)
         val viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
         setContent {

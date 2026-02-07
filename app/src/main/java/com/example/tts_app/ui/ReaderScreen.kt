@@ -1,7 +1,10 @@
 package com.example.tts_app.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -10,8 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SkipNext
@@ -20,16 +21,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ReaderScreen(
     viewModel: MainViewModel,
@@ -43,10 +47,13 @@ fun ReaderScreen(
     val isPlaying by viewModel.isPlaying.collectAsState()
     val ttsSpeed by viewModel.ttsSpeed.collectAsState()
     val fontSize by viewModel.fontSize.collectAsState()
+    val fontColorVal by viewModel.fontColor.collectAsState()
     val lineHeightMultiplier by viewModel.lineHeightMultiplier.collectAsState()
     val textMargin by viewModel.textMargin.collectAsState()
     val fontFamily by viewModel.fontFamily.collectAsState()
     val isOled by viewModel.isOledMode.collectAsState()
+
+    val viewingIndex by viewModel.viewingChapterIndex.collectAsState()
 
     DisposableEffect(Unit) {
         onDispose {
@@ -64,14 +71,25 @@ fun ReaderScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
+    LaunchedEffect(lines) {
+        if (lines.isNotEmpty()) {
+            listState.scrollToItem(0)
+        }
+    }
+
+    val firstVisibleItemIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    LaunchedEffect(firstVisibleItemIndex) {
+        viewModel.updateProgressIfThresholdMet(firstVisibleItemIndex, lines.size)
+    }
+
     LaunchedEffect(currentIndex, isDragging) {
         if (!isDragging && currentIndex != -1) {
             sliderPosition = currentIndex.toFloat()
         }
     }
 
-    val currentChapterTitle = remember(novel, chapters) {
-        chapters.find { it.index == (novel?.currentChapterIndex ?: 0) }?.title ?: "Unknown Chapter"
+    val currentChapterTitle = remember(novel, chapters, viewingIndex) {
+        chapters.find { it.index == viewingIndex }?.title ?: "Unknown Chapter"
     }
 
     LaunchedEffect(currentIndex) {
@@ -83,7 +101,7 @@ fun ReaderScreen(
     val bgColor = if (isOled) Color.Black else Color(0xFF111827)
     val cardColor = if (isOled) Color(0xFF121212) else Color(0xFF1F2937)
     val primaryColor = Color(0xFF3B82F6)
-    val textColor = Color(0xFFF9FAFB)
+    val textColor = Color(fontColorVal)
     val secondaryColor = Color(0xFF9CA3AF)
     val errorColor = Color(0xFFEF4444)
 
@@ -164,9 +182,12 @@ fun ReaderScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(if (isActive) primaryColor.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                    .clickable {
-                                        selectedSegmentIndex = if (selectedSegmentIndex == index) -1 else index
-                                    }
+                                    .combinedClickable(
+                                        onClick = { isImmersiveMode = !isImmersiveMode },
+                                        onLongClick = {
+                                            selectedSegmentIndex = if (selectedSegmentIndex == index) -1 else index
+                                        }
+                                    )
                                     .padding(4.dp)
                             )
 
@@ -192,6 +213,96 @@ fun ReaderScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val currentIdx = viewingIndex
+                            val maxIdx = (chapters.size - 1).coerceAtLeast(0)
+
+                            if (currentIdx > 0) {
+                                Button(
+                                    onClick = { viewModel.playFromIndex(currentIdx - 1, autoPlay = isPlaying) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = cardColor)
+                                ) {
+                                    Text("Previous Chapter", color = textColor)
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.width(10.dp))
+                            }
+
+                            if (currentIdx < maxIdx) {
+                                Button(
+                                    onClick = { viewModel.playFromIndex(currentIdx + 1, autoPlay = isPlaying) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                                ) {
+                                    Text("Next Chapter", color = Color.White)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!isImmersiveMode) {
+                    val layoutInfo = listState.layoutInfo
+                    val totalItems = layoutInfo.totalItemsCount
+                    val visibleItems = layoutInfo.visibleItemsInfo.size
+
+                    if (totalItems > visibleItems) {
+                        val density = LocalDensity.current
+                        var trackHeightPx by remember { mutableFloatStateOf(0f) }
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 12.dp)
+                                .offset(y = (-80).dp)
+                                .fillMaxHeight(0.5f)
+                                .width(24.dp)
+                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .onGloballyPositioned { coordinates ->
+                                    trackHeightPx = coordinates.size.height.toFloat()
+                                }
+                                .pointerInput(totalItems, trackHeightPx) {
+                                    detectVerticalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        if (trackHeightPx > 0) {
+                                            val ratio = dragAmount / trackHeightPx
+                                            val currentIdx = listState.firstVisibleItemIndex
+                                            val changeIdx = ratio * totalItems
+                                            val newIdx = (currentIdx + changeIdx).toInt().coerceIn(0, totalItems - 1)
+
+                                            coroutineScope.launch {
+                                                listState.scrollToItem(newIdx)
+                                            }
+                                        }
+                                    }
+                                }
+                        ) {
+                            val minThumbHeightPx = with(density) { 32.dp.toPx() }
+
+                            val ratioVisible = visibleItems.toFloat() / totalItems.toFloat()
+                            val thumbHeightPx = (trackHeightPx * ratioVisible).coerceAtLeast(minThumbHeightPx)
+
+                            val scrollRange = totalItems - visibleItems
+                            val scrollProgress = if (scrollRange > 0) listState.firstVisibleItemIndex.toFloat() / scrollRange.toFloat() else 0f
+                            val trackScrollableArea = trackHeightPx - thumbHeightPx
+                            val thumbOffsetPx = trackScrollableArea * scrollProgress
+
+                            Box(
+                                modifier = Modifier
+                                    .offset { IntOffset(0, thumbOffsetPx.toInt()) }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .fillMaxWidth()
+                                    .height(with(density) { thumbHeightPx.toDp() })
+                                    .background(primaryColor, CircleShape)
+                            )
                         }
                     }
                 }
@@ -282,7 +393,7 @@ fun ReaderScreen(
                         )
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { novel?.let { if (it.currentChapterIndex > 0) viewModel.playFromIndex(it.currentChapterIndex - 1, autoPlay = true) } }) {
+                            IconButton(onClick = { novel?.let { if (viewingIndex > 0) viewModel.playFromIndex(viewingIndex - 1, autoPlay = isPlaying) } }) {
                                 Icon(Icons.Default.SkipPrevious, contentDescription = "prev", tint = secondaryColor)
                             }
                             Box(modifier = Modifier.size(56.dp).background(primaryColor, CircleShape).clickable { viewModel.togglePlayPause() }, contentAlignment = Alignment.Center) {
@@ -290,27 +401,12 @@ fun ReaderScreen(
                                 else if (isPlaying) Icon(painter = painterResource(android.R.drawable.ic_media_pause), contentDescription = "pause", tint = Color.White)
                                 else Icon(Icons.Default.PlayArrow, contentDescription = "play", tint = Color.White)
                             }
-                            IconButton(onClick = { novel?.let { if (it.currentChapterIndex < (chapters.size - 1)) viewModel.playFromIndex(it.currentChapterIndex + 1, autoPlay = true) } }) {
+                            IconButton(onClick = { novel?.let { if (viewingIndex < (chapters.size - 1)) viewModel.playFromIndex(viewingIndex + 1, autoPlay = isPlaying) } }) {
                                 Icon(Icons.Default.SkipNext, contentDescription = "next", tint = secondaryColor)
                             }
                         }
                     }
                 }
-            }
-
-            SmallFloatingActionButton(
-                onClick = { isImmersiveMode = !isImmersiveMode },
-                containerColor = primaryColor,
-                contentColor = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-            ) {
-                Icon(
-                    imageVector = if (isImmersiveMode) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Toggle Immersive",
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
     }

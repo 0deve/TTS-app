@@ -38,5 +38,6 @@ data class Chapter(
     val title: String,
     val url: String,
     val content: String = "",
-    val isDownloaded: Boolean = false
+    val isDownloaded: Boolean = false,
+    val releaseDate: String = ""
 )

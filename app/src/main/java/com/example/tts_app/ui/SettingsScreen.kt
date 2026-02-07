@@ -3,8 +3,10 @@ package com.example.tts_app.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -28,7 +30,9 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isServerEnabled by viewModel.isServerTtsEnabled.collectAsState()
     val ttsSpeed by viewModel.ttsSpeed.collectAsState()
+    val voicePitch by viewModel.voicePitch.collectAsState()
     val fontSize by viewModel.fontSize.collectAsState()
+    val fontColor by viewModel.fontColor.collectAsState()
     val serverIp by viewModel.serverIp.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val lineHeight by viewModel.lineHeightMultiplier.collectAsState()
@@ -54,8 +58,17 @@ fun SettingsScreen(
     val textColor = Color(0xFFF9FAFB)
     val secondaryColor = Color(0xFF9CA3AF)
     val primaryColor = Color(0xFF3B82F6)
-    val successColor = Color(0xFF10B981)
     val errorColor = Color(0xFFEF4444)
+
+    val colorOptions = listOf(
+        0xFFF9FAFB,
+        0xFF9CA3AF,
+        0xFFEF4444,
+        0xFFF59E0B,
+        0xFF10B981,
+        0xFF3B82F6,
+        0xFF8B5CF6
+    )
 
     Scaffold(
         containerColor = bgColor,
@@ -112,6 +125,23 @@ fun SettingsScreen(
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
+                    Text("Font Color", color = textColor, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        colorOptions.forEach { color ->
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(Color(color), CircleShape)
+                                    .clickable { viewModel.setFontColor(color) }
+                                    .then(if (fontColor == color) Modifier.background(Color.White.copy(alpha = 0.3f), CircleShape) else Modifier)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text("Line Height: ${String.format("%.1f", lineHeight)}", color = textColor)
                     Slider(
                         value = lineHeight,
@@ -149,7 +179,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "The quick brown fox jumps over the lazy dog.\nThis is a second line to visualize line height and spacing settings.",
-                        color = textColor,
+                        color = Color(fontColor),
                         fontSize = fontSize.sp,
                         fontFamily = fontFamily,
                         lineHeight = (fontSize * lineHeight).sp
@@ -269,11 +299,23 @@ fun SettingsScreen(
                         Text("Speaking Rate", color = textColor, fontWeight = FontWeight.SemiBold)
                         Text("${String.format("%.1f", ttsSpeed)}x", color = secondaryColor)
                     }
-
                     Slider(
                         value = ttsSpeed,
                         onValueChange = { viewModel.setTtsSpeed(it) },
                         valueRange = 0.5f..3.0f,
+                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Voice Pitch", color = textColor, fontWeight = FontWeight.SemiBold)
+                        Text("${String.format("%.1f", voicePitch)}", color = secondaryColor)
+                    }
+                    Slider(
+                        value = voicePitch,
+                        onValueChange = { viewModel.setVoicePitch(it) },
+                        valueRange = 0.5f..2.0f,
                         colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = primaryColor)
                     )
                 }

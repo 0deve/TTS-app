@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -46,6 +47,7 @@ fun LibraryScreen(
     val downloadedNovels by viewModel.downloadedNovels.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val isOled by viewModel.isOledMode.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Recent") }
@@ -213,7 +215,23 @@ fun LibraryScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            Text("My Library", color = textColor, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("My Library", color = textColor, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+
+                IconButton(onClick = { viewModel.checkLibraryUpdates() }) {
+                    if (isLoadingMore) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = primaryColor)
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = "Check updates", tint = primaryColor)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Surface(modifier = Modifier.fillMaxWidth().height(50.dp), color = surfaceColor, shape = RoundedCornerShape(12.dp)) {

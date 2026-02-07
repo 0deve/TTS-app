@@ -1,15 +1,23 @@
 package com.example.tts_app.ui
 
 import android.net.Uri
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.example.tts_app.data.PreferencesManager
 import com.example.tts_app.data.TtsRepository
 import com.example.tts_app.data.local.BookDao
 import com.example.tts_app.data.local.Chapter
 import com.example.tts_app.data.local.Novel
 import com.example.tts_app.player.AudioPlayerManager
 import com.example.tts_app.player.LocalTtsManager
+import com.example.tts_app.workers.DownloadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -19,38 +27,52 @@ class MainViewModel(
     private val repository: TtsRepository,
     private val audioPlayer: AudioPlayerManager,
     private val localTts: LocalTtsManager,
-    private val bookDao: BookDao
+    private val bookDao: BookDao,
+    private val workManager: WorkManager,
+    private val preferencesManager: PreferencesManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState = _uiState.asStateFlow()
 
-    private val _isServerTtsEnabled = MutableStateFlow(true)
+    private val _isServerTtsEnabled = MutableStateFlow(preferencesManager.getBoolean(PreferencesManager.KEY_SERVER_ENABLED, true))
     val isServerTtsEnabled = _isServerTtsEnabled.asStateFlow()
-    private val _ttsSpeed = MutableStateFlow(1.0f)
+
+    private val _ttsSpeed = MutableStateFlow(preferencesManager.getFloat(PreferencesManager.KEY_TTS_SPEED, 1.0f))
     val ttsSpeed = _ttsSpeed.asStateFlow()
-    private val _fontSize = MutableStateFlow(18f)
+
+    private val _voicePitch = MutableStateFlow(preferencesManager.getFloat(PreferencesManager.KEY_VOICE_PITCH, 1.0f))
+    val voicePitch = _voicePitch.asStateFlow()
+
+    private val _fontSize = MutableStateFlow(preferencesManager.getFloat(PreferencesManager.KEY_FONT_SIZE, 18f))
     val fontSize = _fontSize.asStateFlow()
-    private val _serverIp = MutableStateFlow("http://192.168.1.2:8774")
+
+    private val _fontColor = MutableStateFlow(preferencesManager.getLong(PreferencesManager.KEY_FONT_COLOR, 0xFFF9FAFB))
+    val fontColor = _fontColor.asStateFlow()
+
+    private val _serverIp = MutableStateFlow(preferencesManager.getString(PreferencesManager.KEY_SERVER_IP, "http://192.168.1.2:8774"))
     val serverIp = _serverIp.asStateFlow()
+
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.None)
     val connectionState = _connectionState.asStateFlow()
 
-    private val _lineHeightMultiplier = MutableStateFlow(1.5f)
+    private val _lineHeightMultiplier = MutableStateFlow(preferencesManager.getFloat(PreferencesManager.KEY_LINE_HEIGHT, 1.5f))
     val lineHeightMultiplier = _lineHeightMultiplier.asStateFlow()
-    private val _textMargin = MutableStateFlow(24)
+
+    private val _textMargin = MutableStateFlow(preferencesManager.getInt(PreferencesManager.KEY_TEXT_MARGIN, 24))
     val textMargin = _textMargin.asStateFlow()
+
     private val _fontFamily = MutableStateFlow(FontFamily.Default)
     val fontFamily = _fontFamily.asStateFlow()
-    private val _fontFamilyName = MutableStateFlow("Default")
+    private val _fontFamilyName = MutableStateFlow(preferencesManager.getString(PreferencesManager.KEY_FONT_FAMILY, "Default"))
     val fontFamilyName = _fontFamilyName.asStateFlow()
 
-    private val _isOledMode = MutableStateFlow(false)
+    private val _isOledMode = MutableStateFlow(preferencesManager.getBoolean(PreferencesManager.KEY_OLED_MODE, false))
     val isOledMode = _isOledMode.asStateFlow()
 
     private val _availableVoices = MutableStateFlow<List<String>>(emptyList())
     val availableVoices = _availableVoices.asStateFlow()
-    private val _selectedVoice = MutableStateFlow("male_04.wav")
+    private val _selectedVoice = MutableStateFlow(preferencesManager.getString(PreferencesManager.KEY_SELECTED_VOICE, "male_04.wav"))
     val selectedVoice = _selectedVoice.asStateFlow()
 
     val libraryNovels = bookDao.getLibraryNovels()
@@ -82,16 +104,30 @@ class MainViewModel(
     private val _isLoadingMore = MutableStateFlow(false)
     val isLoadingMore = _isLoadingMore.asStateFlow()
 
-    private var downloadJob: Job? = null
-    private var novelJob: Job? = null
+    private val _viewingChapterIndex = MutableStateFlow(-1)
+    val viewingChapterIndex = _viewingChapterIndex.asStateFlow()
 
+    private var novelJob: Job? = null
     private var playbackQueue: List<String> = emptyList()
     private var isTestMode = false
 
     init {
         audioPlayer.onCompletionListener = { playNextSegment() }
         localTts.onCompletionListener = { playNextSegment() }
+
+        localTts.onInitSuccess = {
+            if (!_isServerTtsEnabled.value) {
+                updateAvailableVoices()
+            }
+        }
+
         repository.setServerUrl(_serverIp.value)
+        applyFont(_fontFamilyName.value)
+
+        if (!_isServerTtsEnabled.value) {
+            localTts.setSpeed(_ttsSpeed.value)
+            localTts.setPitch(_voicePitch.value)
+        }
         updateAvailableVoices()
     }
 
@@ -101,6 +137,25 @@ class MainViewModel(
                 _availableVoices.value = repository.getServerVoices()
             } else {
                 _availableVoices.value = localTts.getAvailableVoices()
+            }
+        }
+    }
+
+    fun checkLibraryUpdates() {
+        if (_isLoadingMore.value) return
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                val novels = bookDao.getLibraryNovels().first()
+                novels.forEach { novel ->
+                    try {
+                        repository.loadMoreChapters(novel.id)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            } finally {
+                _isLoadingMore.value = false
             }
         }
     }
@@ -176,15 +231,25 @@ class MainViewModel(
     fun playFromIndex(chapterIndex: Int, autoPlay: Boolean = true) {
         isTestMode = false
         val novel = _activeNovel.value ?: return
-        if (novel.currentChapterIndex != chapterIndex) {
-            updateProgress(novel, chapterIndex)
-        }
+
+        _viewingChapterIndex.value = chapterIndex
 
         val chapter = _activeChapters.value.find { it.index == chapterIndex } ?: return
         loadChapterContent(chapter, autoPlay)
 
         if (chapterIndex >= _activeChapters.value.size - 5) {
             loadMoreChapters()
+        }
+    }
+
+    fun updateProgressIfThresholdMet(visibleItemIndex: Int, totalItems: Int) {
+        val novel = _activeNovel.value ?: return
+        val viewingIndex = _viewingChapterIndex.value
+
+        if (totalItems > 0 && visibleItemIndex > totalItems / 2) {
+            if (viewingIndex != -1 && viewingIndex != novel.currentChapterIndex) {
+                updateProgress(novel, viewingIndex)
+            }
         }
     }
 
@@ -313,20 +378,40 @@ class MainViewModel(
     }
 
     fun downloadNovel(novelId: Int, amount: Int, mode: String = "all") {
-        if (downloadJob?.isActive == true) return
-        downloadJob = viewModelScope.launch(Dispatchers.IO) {
-            _downloadProgress.value = 0f
-            if (mode == "unread") {
-                val novel = bookDao.getNovelById(novelId) ?: return@launch
-                repository.downloadChapters(novelId, amount, novel.currentChapterIndex).collect { _downloadProgress.value = it }
-            } else {
-                repository.downloadChapters(novelId, amount, 0).collect { _downloadProgress.value = it }
+        val workData = workDataOf(
+            "novelId" to novelId,
+            "limit" to amount,
+            "mode" to mode
+        )
+
+        val workRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(workData)
+            .addTag("download_$novelId")
+            .build()
+
+        workManager.enqueueUniqueWork("download_$novelId", ExistingWorkPolicy.KEEP, workRequest)
+
+        viewModelScope.launch {
+            workManager.getWorkInfoByIdFlow(workRequest.id).collect { workInfo ->
+                if (workInfo != null) {
+                    when (workInfo.state) {
+                        WorkInfo.State.RUNNING -> {
+                            val progress = workInfo.progress.getFloat("progress", 0f)
+                            _downloadProgress.value = progress
+                        }
+                        WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                            _downloadProgress.value = null
+                        }
+                        else -> {}
+                    }
+                }
             }
-            _downloadProgress.value = null
         }
     }
 
-    fun cancelDownload() { downloadJob?.cancel(); _downloadProgress.value = null }
+    fun cancelDownload() {
+    }
+
     fun searchNovels(query: String, onResult: (List<Novel>) -> Unit) { viewModelScope.launch { onResult(repository.searchRemoteNovels(query)) } }
     fun addToLibrary(novel: Novel) { viewModelScope.launch { repository.addToLibrary(novel) } }
     fun removeFromLibrary(novelId: Int) { viewModelScope.launch { bookDao.deleteNovel(novelId) } }
@@ -337,14 +422,36 @@ class MainViewModel(
             bookDao.insertChapters(updated)
         }
     }
+
     fun setTtsMode(enabled: Boolean) {
         _isServerTtsEnabled.value = enabled
+        preferencesManager.saveBoolean(PreferencesManager.KEY_SERVER_ENABLED, enabled)
         stopAudio()
         updateAvailableVoices()
     }
-    fun setFontSize(size: Float) { _fontSize.value = size }
-    fun setTtsSpeed(speed: Float) { _ttsSpeed.value = speed; if(!_isServerTtsEnabled.value) localTts.setSpeed(speed) }
-    fun updateServerIp(ip: String) { _serverIp.value = ip; repository.setServerUrl(ip); updateAvailableVoices() }
+    fun setFontSize(size: Float) {
+        _fontSize.value = size
+        preferencesManager.saveFloat(PreferencesManager.KEY_FONT_SIZE, size)
+    }
+    fun setTtsSpeed(speed: Float) {
+        _ttsSpeed.value = speed
+        preferencesManager.saveFloat(PreferencesManager.KEY_TTS_SPEED, speed)
+        if(!_isServerTtsEnabled.value) localTts.setSpeed(speed)
+    }
+    fun setVoicePitch(pitch: Float) {
+        _voicePitch.value = pitch
+        preferencesManager.saveFloat(PreferencesManager.KEY_VOICE_PITCH, pitch)
+        if(!_isServerTtsEnabled.value) localTts.setPitch(pitch)
+    }
+    fun setFontColor(color: Long) {
+        _fontColor.value = color
+        preferencesManager.saveLong(PreferencesManager.KEY_FONT_COLOR, color)
+    }
+    fun updateServerIp(ip: String) {
+        _serverIp.value = ip
+        preferencesManager.saveString(PreferencesManager.KEY_SERVER_IP, ip)
+        repository.setServerUrl(ip); updateAvailableVoices()
+    }
     fun testServerConnection() { viewModelScope.launch { _connectionState.value = ConnectionState.Testing; val s = repository.testConnection(); _connectionState.value = if(s) ConnectionState.Success else ConnectionState.Failed; updateAvailableVoices() } }
 
     fun generateAudio(text: String) {
@@ -354,10 +461,21 @@ class MainViewModel(
         playAudioSegment(0)
     }
 
-    fun setLineHeight(multiplier: Float) { _lineHeightMultiplier.value = multiplier }
-    fun setTextMargin(margin: Int) { _textMargin.value = margin }
+    fun setLineHeight(multiplier: Float) {
+        _lineHeightMultiplier.value = multiplier
+        preferencesManager.saveFloat(PreferencesManager.KEY_LINE_HEIGHT, multiplier)
+    }
+    fun setTextMargin(margin: Int) {
+        _textMargin.value = margin
+        preferencesManager.saveInt(PreferencesManager.KEY_TEXT_MARGIN, margin)
+    }
     fun setFontFamily(name: String) {
         _fontFamilyName.value = name
+        preferencesManager.saveString(PreferencesManager.KEY_FONT_FAMILY, name)
+        applyFont(name)
+    }
+
+    private fun applyFont(name: String) {
         _fontFamily.value = when(name) {
             "Serif" -> FontFamily.Serif
             "SansSerif" -> FontFamily.SansSerif
@@ -366,9 +484,15 @@ class MainViewModel(
         }
     }
 
-    fun setSelectedVoice(voice: String) { _selectedVoice.value = voice }
+    fun setSelectedVoice(voice: String) {
+        _selectedVoice.value = voice
+        preferencesManager.saveString(PreferencesManager.KEY_SELECTED_VOICE, voice)
+    }
 
-    fun setOledMode(enabled: Boolean) { _isOledMode.value = enabled }
+    fun setOledMode(enabled: Boolean) {
+        _isOledMode.value = enabled
+        preferencesManager.saveBoolean(PreferencesManager.KEY_OLED_MODE, enabled)
+    }
 
     fun backupLibrary(uri: Uri) {
         viewModelScope.launch {
