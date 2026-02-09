@@ -17,7 +17,8 @@ fun AppNavigation(viewModel: MainViewModel) {
                 onBookSelected = { novelId ->
                     navController.navigate("novel_details")
                 },
-                onNavigateToBrowse = { navController.navigate("browse") }
+                onNavigateToBrowse = { navController.navigate("browse") },
+                onNavigateToStatistics = { navController.navigate("statistics") }
             )
         }
         composable("novel_details") {
@@ -44,6 +45,12 @@ fun AppNavigation(viewModel: MainViewModel) {
         }
         composable("reader") {
             ReaderScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("statistics") {
+            StatisticsScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )

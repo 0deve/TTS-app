@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
@@ -41,7 +42,8 @@ fun LibraryScreen(
     viewModel: MainViewModel,
     onNavigateToSettings: () -> Unit,
     onBookSelected: (Int) -> Unit,
-    onNavigateToBrowse: () -> Unit
+    onNavigateToBrowse: () -> Unit,
+    onNavigateToStatistics: () -> Unit
 ) {
     val novels by viewModel.libraryNovels.collectAsState()
     val downloadedNovels by viewModel.downloadedNovels.collectAsState()
@@ -193,6 +195,13 @@ fun LibraryScreen(
                     )
                     NavigationBarItem(
                         selected = false,
+                        onClick = onNavigateToStatistics,
+                        icon = { Icon(Icons.Default.BarChart, contentDescription = "statistics") },
+                        label = { Text("Statistics") },
+                        colors = NavigationBarItemDefaults.colors(unselectedIconColor = secondaryTextColor, unselectedTextColor = secondaryTextColor, indicatorColor = surfaceColor)
+                    )
+                    NavigationBarItem(
+                        selected = false,
                         onClick = onNavigateToSettings,
                         icon = { Icon(Icons.Default.Settings, contentDescription = "settings") },
                         label = { Text("Settings") },
@@ -215,7 +224,7 @@ fun LibraryScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

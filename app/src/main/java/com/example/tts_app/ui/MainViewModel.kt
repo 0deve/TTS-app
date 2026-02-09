@@ -23,6 +23,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+data class AppStatistics(
+    val totalNovels: Int = 0,
+    val totalChaptersRead: Int = 0,
+    val totalDownloadedChapters: Int = 0,
+    val totalUnreadChapters: Int = 0
+)
+
 class MainViewModel(
     private val repository: TtsRepository,
     private val audioPlayer: AudioPlayerManager,
@@ -107,6 +114,9 @@ class MainViewModel(
     private val _viewingChapterIndex = MutableStateFlow(-1)
     val viewingChapterIndex = _viewingChapterIndex.asStateFlow()
 
+    private val _statistics = MutableStateFlow(AppStatistics())
+    val statistics = _statistics.asStateFlow()
+
     private var novelJob: Job? = null
     private var playbackQueue: List<String> = emptyList()
     private var isTestMode = false
@@ -129,6 +139,7 @@ class MainViewModel(
             localTts.setPitch(_voicePitch.value)
         }
         updateAvailableVoices()
+        loadStatistics()
     }
 
     private fun updateAvailableVoices() {
@@ -374,6 +385,7 @@ class MainViewModel(
             if (_activeNovel.value?.id == novel.id) {
                 _activeNovel.value = updated
             }
+            loadStatistics()
         }
     }
 
@@ -401,6 +413,7 @@ class MainViewModel(
                         }
                         WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
                             _downloadProgress.value = null
+                            loadStatistics()
                         }
                         else -> {}
                     }
@@ -412,14 +425,43 @@ class MainViewModel(
     fun cancelDownload() {
     }
 
-    fun searchNovels(query: String, onResult: (List<Novel>) -> Unit) { viewModelScope.launch { onResult(repository.searchRemoteNovels(query)) } }
-    fun addToLibrary(novel: Novel) { viewModelScope.launch { repository.addToLibrary(novel) } }
-    fun removeFromLibrary(novelId: Int) { viewModelScope.launch { bookDao.deleteNovel(novelId) } }
+    fun searchNovels(query: String, onResult: (List<Novel>) -> Unit) {
+        viewModelScope.launch {
+            val fetchedNovels = repository.searchRemoteNovels(query)
+            val libraryNovels = bookDao.getAllNovelsSync()
+            val libraryUrls = libraryNovels.map { it.url }.toSet()
+
+            val mergedNovels = fetchedNovels.map { novel ->
+                if (novel.url in libraryUrls) {
+                    novel.copy(inLibrary = true)
+                } else {
+                    novel
+                }
+            }
+            onResult(mergedNovels)
+        }
+    }
+
+    fun addToLibrary(novel: Novel) {
+        viewModelScope.launch {
+            repository.addToLibrary(novel)
+            loadStatistics()
+        }
+    }
+
+    fun removeFromLibrary(novelId: Int) {
+        viewModelScope.launch {
+            bookDao.deleteNovel(novelId)
+            loadStatistics()
+        }
+    }
+
     fun uninstallChapters(novelId: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             val chapters = bookDao.getChapterList(novelId)
             val updated = chapters.map { it.copy(content = "", isDownloaded = false) }
             bookDao.insertChapters(updated)
+            loadStatistics()
         }
     }
 
@@ -503,6 +545,26 @@ class MainViewModel(
     fun restoreLibrary(uri: Uri) {
         viewModelScope.launch {
             repository.restoreLibrary(uri)
+            loadStatistics()
+        }
+    }
+
+    fun loadStatistics() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val novels = bookDao.getAllNovelsSync().filter { it.inLibrary }
+            val chapters = bookDao.getAllChaptersSync()
+
+            val totalNovels = novels.size
+            val readChapters = novels.sumOf { it.currentChapterIndex }
+            val downloadedChapters = chapters.count { it.isDownloaded }
+            val unreadChapters = novels.sumOf { (it.totalChapters - it.currentChapterIndex).coerceAtLeast(0) }
+
+            _statistics.value = AppStatistics(
+                totalNovels = totalNovels,
+                totalChaptersRead = readChapters,
+                totalDownloadedChapters = downloadedChapters,
+                totalUnreadChapters = unreadChapters
+            )
         }
     }
 
