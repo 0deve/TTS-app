@@ -29,6 +29,16 @@ fun BrowseScreen(
     var isLoading by remember { mutableStateOf(false) }
     val isOled by viewModel.isOledMode.collectAsState()
 
+    LaunchedEffect(Unit) {
+        if (results.isEmpty()) {
+            isLoading = true
+            viewModel.searchNovels(query) { fetched ->
+                results = fetched
+                isLoading = false
+            }
+        }
+    }
+
     val bgColor = if (isOled) Color.Black else Color(0xFF111827)
     val surfaceColor = if (isOled) Color(0xFF121212) else Color(0xFF1F2937)
     val textColor = Color(0xFFF9FAFB)

@@ -79,4 +79,5 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.media:media:1.7.0")
 }

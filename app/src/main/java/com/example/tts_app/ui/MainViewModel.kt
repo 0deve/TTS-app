@@ -1,7 +1,7 @@
 package com.example.tts_app.ui
 
-import android.net.Uri
-import androidx.compose.ui.graphics.Color
+import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.text.font.FontFamily
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,11 +17,13 @@ import com.example.tts_app.data.local.Chapter
 import com.example.tts_app.data.local.Novel
 import com.example.tts_app.player.AudioPlayerManager
 import com.example.tts_app.player.LocalTtsManager
+import com.example.tts_app.service.TtsService
 import com.example.tts_app.workers.DownloadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import android.net.Uri
 
 data class AppStatistics(
     val totalNovels: Int = 0,
@@ -31,6 +33,7 @@ data class AppStatistics(
 )
 
 class MainViewModel(
+    private val context: Context,
     private val repository: TtsRepository,
     private val audioPlayer: AudioPlayerManager,
     private val localTts: LocalTtsManager,
@@ -42,7 +45,7 @@ class MainViewModel(
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState = _uiState.asStateFlow()
 
-    private val _isServerTtsEnabled = MutableStateFlow(preferencesManager.getBoolean(PreferencesManager.KEY_SERVER_ENABLED, true))
+    private val _isServerTtsEnabled = MutableStateFlow(preferencesManager.getBoolean(PreferencesManager.KEY_SERVER_ENABLED, false))
     val isServerTtsEnabled = _isServerTtsEnabled.asStateFlow()
 
     private val _ttsSpeed = MutableStateFlow(preferencesManager.getFloat(PreferencesManager.KEY_TTS_SPEED, 1.0f))
@@ -140,6 +143,23 @@ class MainViewModel(
         }
         updateAvailableVoices()
         loadStatistics()
+    }
+
+    private fun updateService() {
+        val novel = _activeNovel.value ?: return
+        val chapter = _activeChapters.value.find { it.index == _viewingChapterIndex.value }
+        val chapterTitle = chapter?.title ?: "Chapter ${_viewingChapterIndex.value}"
+
+        val intent = Intent(context, TtsService::class.java).apply {
+            putExtra("title", novel.title)
+            putExtra("chapter", chapterTitle)
+            putExtra("isPlaying", _isPlaying.value)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
     }
 
     private fun updateAvailableVoices() {
@@ -288,6 +308,9 @@ class MainViewModel(
                 }
 
                 _uiState.value = UiState.Idle
+
+
+                updateService()
             } else {
                 _uiState.value = UiState.Error("Failed to load content")
             }
@@ -298,9 +321,32 @@ class MainViewModel(
         if (_isPlaying.value) {
             stopAudio()
             _isPlaying.value = false
+            updateService()
         } else {
             val index = if (_currentPlaybackIndex.value == -1) 0 else _currentPlaybackIndex.value
             playAudioSegment(index)
+            updateService()
+        }
+    }
+
+    fun playNext() {
+        val novel = _activeNovel.value
+        val chapters = _activeChapters.value
+        if (novel != null && chapters.isNotEmpty()) {
+            val nextChapterIndex = novel.currentChapterIndex + 1
+            if (nextChapterIndex < chapters.size) {
+                playFromIndex(nextChapterIndex, autoPlay = true)
+            }
+        }
+    }
+
+    fun playPrevious() {
+        val novel = _activeNovel.value
+        if (novel != null) {
+            val prevChapterIndex = novel.currentChapterIndex - 1
+            if (prevChapterIndex >= 0) {
+                playFromIndex(prevChapterIndex, autoPlay = true)
+            }
         }
     }
 
