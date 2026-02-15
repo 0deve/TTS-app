@@ -38,11 +38,31 @@ interface BookDao {
     @Query("SELECT * FROM chapters WHERE novelId = :novelId AND `index` = :index LIMIT 1")
     suspend fun getChapterByIndex(novelId: Int, index: Int): Chapter?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertChapters(chapters: List<Chapter>)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertChapterIgnored(chapter: Chapter): Long
 
     @Update
     suspend fun updateChapter(chapter: Chapter)
+
+    @Transaction
+    suspend fun insertOrUpdateChapters(chapters: List<Chapter>) {
+        for (chapter in chapters) {
+            val existing = getChapterByIndex(chapter.novelId, chapter.index)
+            if (existing != null) {
+                val updated = chapter.copy(
+                    id = existing.id,
+                    content = existing.content,
+                    isDownloaded = existing.isDownloaded
+                )
+                updateChapter(updated)
+            } else {
+                insertChapterIgnored(chapter)
+            }
+        }
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertChapters(chapters: List<Chapter>)
 
     @Query("SELECT * FROM novels")
     suspend fun getAllNovelsSync(): List<Novel>

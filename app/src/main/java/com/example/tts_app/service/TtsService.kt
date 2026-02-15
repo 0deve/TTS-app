@@ -41,10 +41,15 @@ class TtsService : Service() {
         val chapter = intent.getStringExtra("chapter") ?: ""
         val isPlaying = intent.getBooleanExtra("isPlaying", false)
 
-        if (!isPlaying) {
-            wakeLock?.let { if (it.isHeld) it.release() }
+        if (isPlaying) {
+            wakeLock?.let { if (!it.isHeld) it.acquire(30 * 60 * 1000L) }
         } else {
-            wakeLock?.let { if (!it.isHeld) it.acquire(10 * 60 * 1000L) }
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    it.acquire(10 * 60 * 1000L)
+                }
+            }
         }
 
         val notification = buildNotification(title, chapter, isPlaying)
@@ -68,7 +73,13 @@ class TtsService : Service() {
         val playPauseLabel = if (isPlaying) "Pause" else "Play"
 
         val playPauseIntentRaw = Intent(playPauseAction).setPackage(packageName)
-        val playPauseIntent = PendingIntent.getBroadcast(this, 2, playPauseIntentRaw, PendingIntent.FLAG_IMMUTABLE)
+        val playPauseIntent = PendingIntent.getBroadcast(this, 1, playPauseIntentRaw, PendingIntent.FLAG_IMMUTABLE)
+
+        val prevIntentRaw = Intent("ACTION_PREVIOUS").setPackage(packageName)
+        val prevIntent = PendingIntent.getBroadcast(this, 2, prevIntentRaw, PendingIntent.FLAG_IMMUTABLE)
+
+        val nextIntentRaw = Intent("ACTION_NEXT").setPackage(packageName)
+        val nextIntent = PendingIntent.getBroadcast(this, 3, nextIntentRaw, PendingIntent.FLAG_IMMUTABLE)
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
@@ -77,8 +88,10 @@ class TtsService : Service() {
             .setContentIntent(openPendingIntent)
             .setOngoing(isPlaying)
             .setStyle(androidx.media.app.NotificationCompat.MediaStyle()
-                .setShowActionsInCompactView(0))
+                .setShowActionsInCompactView(0, 1, 2))
+            .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
             .addAction(playPauseIcon, playPauseLabel, playPauseIntent)
+            .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
             .setOnlyAlertOnce(true)
 
         return builder.build()

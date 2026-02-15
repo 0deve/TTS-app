@@ -75,7 +75,7 @@ class TtsRepository(
             val chaptersWithId = firstBatch.mapIndexed { index, chapter ->
                 chapter.copy(novelId = novelId, index = index)
             }
-            bookDao.insertChapters(chaptersWithId)
+            bookDao.insertOrUpdateChapters(chaptersWithId)
         }
     }
 
@@ -83,7 +83,7 @@ class TtsRepository(
         val novel = bookDao.getNovelById(novelId) ?: return 0
         val currentChapters = bookDao.getChapterList(novelId)
 
-        val pageToFetch = (currentChapters.size / 100) + 1
+        val pageToFetch = (currentChapters.size / 50) + 1
 
         val newChapters = scraper.getChaptersBatch(novel.url, pageToFetch)
 
@@ -98,7 +98,7 @@ class TtsRepository(
             }
 
             if (uniqueChapters.isNotEmpty()) {
-                bookDao.insertChapters(uniqueChapters)
+                bookDao.insertOrUpdateChapters(uniqueChapters)
 
                 val newTotal = currentChapters.size + uniqueChapters.size
                 if (newTotal > novel.totalChapters) {
@@ -325,7 +325,7 @@ class TtsRepository(
             }
 
             novels.forEach { bookDao.insertNovel(it) }
-            bookDao.insertChapters(chapters)
+            bookDao.insertOrUpdateChapters(chapters)
             true
         } catch (e: Exception) {
             Log.e("Restore", "Restore failed", e)

@@ -13,8 +13,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -355,19 +357,20 @@ fun ReaderScreen(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Surface(
-                                color = Color(0xFF374151),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.clickable {
-                                    val newSpeed = when (ttsSpeed) { 0.5f -> 1.0f; 1.0f -> 1.5f; 1.5f -> 2.0f; 2.0f -> 3.0f; else -> 0.5f }; viewModel.setTtsSpeed(newSpeed)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed - 0.1f).coerceAtLeast(0.5f)) }) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease speed", tint = textColor)
                                 }
-                            ) {
                                 Text(
                                     text = "${String.format("%.1f", ttsSpeed)}x",
                                     color = textColor,
                                     fontSize = 12.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
                                 )
+                                IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed + 0.1f).coerceAtMost(3.0f)) }) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase speed", tint = textColor)
+                                }
                             }
                         }
 
@@ -378,9 +381,7 @@ fun ReaderScreen(
                                 sliderPosition = it
                             },
                             onValueChangeFinished = {
-                                coroutineScope.launch {
-                                    listState.animateScrollToItem(sliderPosition.toInt())
-                                }
+                                viewModel.onSegmentClick(sliderPosition.toInt())
                                 isDragging = false
                             },
                             valueRange = 0f..lines.lastIndex.toFloat().coerceAtLeast(1f),

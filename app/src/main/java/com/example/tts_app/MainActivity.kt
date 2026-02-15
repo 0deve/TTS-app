@@ -44,6 +44,8 @@ class MainActivity : ComponentActivity() {
             when (intent?.action) {
                 "ACTION_PLAY" -> viewModel.togglePlayPause()
                 "ACTION_PAUSE" -> viewModel.togglePlayPause()
+                "ACTION_NEXT" -> viewModel.playNext()
+                "ACTION_PREVIOUS" -> viewModel.playPrevious()
             }
         }
     }
@@ -72,6 +74,8 @@ class MainActivity : ComponentActivity() {
         val filter = IntentFilter().apply {
             addAction("ACTION_PLAY")
             addAction("ACTION_PAUSE")
+            addAction("ACTION_NEXT")
+            addAction("ACTION_PREVIOUS")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(mediaReceiver, filter, RECEIVER_NOT_EXPORTED)

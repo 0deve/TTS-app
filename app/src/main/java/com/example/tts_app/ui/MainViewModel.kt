@@ -23,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import android.net.Uri
 
 data class AppStatistics(
@@ -124,6 +126,8 @@ class MainViewModel(
     private var playbackQueue: List<String> = emptyList()
     private var isTestMode = false
 
+    private val playbackMutex = Mutex()
+
     init {
         audioPlayer.onCompletionListener = { playNextSegment() }
         localTts.onCompletionListener = { playNextSegment() }
@@ -131,16 +135,14 @@ class MainViewModel(
         localTts.onInitSuccess = {
             if (!_isServerTtsEnabled.value) {
                 updateAvailableVoices()
+                localTts.setSpeed(_ttsSpeed.value)
+                localTts.setPitch(_voicePitch.value)
             }
         }
 
         repository.setServerUrl(_serverIp.value)
         applyFont(_fontFamilyName.value)
 
-        if (!_isServerTtsEnabled.value) {
-            localTts.setSpeed(_ttsSpeed.value)
-            localTts.setPitch(_voicePitch.value)
-        }
         updateAvailableVoices()
         loadStatistics()
     }
@@ -332,9 +334,12 @@ class MainViewModel(
     fun playNext() {
         val novel = _activeNovel.value
         val chapters = _activeChapters.value
+        val currentIndex = if (_viewingChapterIndex.value != -1) _viewingChapterIndex.value else novel?.currentChapterIndex ?: 0
+
         if (novel != null && chapters.isNotEmpty()) {
-            val nextChapterIndex = novel.currentChapterIndex + 1
+            val nextChapterIndex = currentIndex + 1
             if (nextChapterIndex < chapters.size) {
+                updateProgress(novel, nextChapterIndex)
                 playFromIndex(nextChapterIndex, autoPlay = true)
             }
         }
@@ -342,9 +347,12 @@ class MainViewModel(
 
     fun playPrevious() {
         val novel = _activeNovel.value
+        val currentIndex = if (_viewingChapterIndex.value != -1) _viewingChapterIndex.value else novel?.currentChapterIndex ?: 0
+
         if (novel != null) {
-            val prevChapterIndex = novel.currentChapterIndex - 1
+            val prevChapterIndex = currentIndex - 1
             if (prevChapterIndex >= 0) {
+                updateProgress(novel, prevChapterIndex)
                 playFromIndex(prevChapterIndex, autoPlay = true)
             }
         }
@@ -356,63 +364,109 @@ class MainViewModel(
     }
 
     private fun playAudioSegment(index: Int) {
-        if (index >= playbackQueue.size || index < 0) {
-            _uiState.value = UiState.Idle
-            _currentPlaybackIndex.value = -1
-            _isPlaying.value = false
-            return
-        }
-
-        _isPlaying.value = true
-        _currentPlaybackIndex.value = index
-        val text = playbackQueue[index]
-
-        if (_isServerTtsEnabled.value) {
-            _uiState.value = UiState.Loading
-            viewModelScope.launch {
-                repository.fetchAudioFromServer(text, _selectedVoice.value).onSuccess { file ->
-                    if(_isPlaying.value && _currentPlaybackIndex.value == index) {
-                        _uiState.value = UiState.Success
-                        audioPlayer.playFile(file, _ttsSpeed.value)
-                    }
-                }.onFailure {
-                    _uiState.value = UiState.Error(it.message ?: "Error")
+        viewModelScope.launch {
+            playbackMutex.withLock {
+                if (index >= playbackQueue.size || index < 0) {
+                    _uiState.value = UiState.Idle
+                    _currentPlaybackIndex.value = -1
                     _isPlaying.value = false
+                    return@withLock
+                }
+
+                _isPlaying.value = true
+                _currentPlaybackIndex.value = index
+                val text = playbackQueue[index]
+
+                if (_isServerTtsEnabled.value) {
+                    _uiState.value = UiState.Loading
+                    repository.fetchAudioFromServer(text, _selectedVoice.value).onSuccess { file ->
+                        if (_isPlaying.value && _currentPlaybackIndex.value == index) {
+                            _uiState.value = UiState.Success
+                            audioPlayer.playFile(file, _ttsSpeed.value)
+                        }
+                    }.onFailure {
+                        _uiState.value = UiState.Error(it.message ?: "Error")
+                        _isPlaying.value = false
+                    }
+                } else {
+                    localTts.setVoice(_selectedVoice.value)
+                    localTts.speak(text)
                 }
             }
-        } else {
-            localTts.setVoice(_selectedVoice.value)
-            localTts.speak(text)
         }
     }
 
     private fun playNextSegment() {
         viewModelScope.launch(Dispatchers.Main) {
-            if (!_isPlaying.value) return@launch
+            playbackMutex.withLock {
+                if (!_isPlaying.value) return@withLock
 
-            val nextIndex = _currentPlaybackIndex.value + 1
-            if (nextIndex < playbackQueue.size) {
-                playAudioSegment(nextIndex)
-            } else {
-                if (isTestMode) {
-                    stopAudio()
-                    return@launch
-                }
-                val novel = _activeNovel.value
-                val chapters = _activeChapters.value
-                if (novel != null && chapters.isNotEmpty()) {
-                    val nextChapterIndex = novel.currentChapterIndex + 1
-                    val nextChapter = chapters.find { it.index == nextChapterIndex }
-                    if (nextChapter != null) {
-                        playFromIndex(nextChapterIndex, autoPlay = true)
-                    } else {
-                        if (chapters.size < novel.totalChapters) {
-                            loadMoreChapters()
+                val nextIndex = _currentPlaybackIndex.value + 1
+                if (nextIndex < playbackQueue.size) {
+                    _isPlaying.value = true
+                    _currentPlaybackIndex.value = nextIndex
+                    val text = playbackQueue[nextIndex]
+
+                    if (_isServerTtsEnabled.value) {
+                        repository.fetchAudioFromServer(text, _selectedVoice.value).onSuccess { file ->
+                            if (_isPlaying.value && _currentPlaybackIndex.value == nextIndex) {
+                                audioPlayer.playFile(file, _ttsSpeed.value)
+                            }
                         }
-                        stopAudio()
+                    } else {
+                        localTts.speak(text)
                     }
                 } else {
-                    stopAudio()
+                    if (isTestMode) {
+                        _isPlaying.value = false
+                        audioPlayer.stop()
+                        localTts.stop()
+                        return@withLock
+                    }
+                    val novel = _activeNovel.value
+                    val chapters = _activeChapters.value
+                    if (novel != null && chapters.isNotEmpty()) {
+                        val nextChapterIndex = novel.currentChapterIndex + 1
+                        val nextChapter = chapters.find { it.index == nextChapterIndex }
+                        if (nextChapter != null) {
+                            val updated = novel.copy(currentChapterIndex = nextChapterIndex)
+                            bookDao.updateNovel(updated)
+                            if (_activeNovel.value?.id == novel.id) {
+                                _activeNovel.value = updated
+                            }
+
+                            val chapter = chapters.find { it.index == nextChapterIndex }
+                            if (chapter != null) {
+                                _viewingChapterIndex.value = nextChapterIndex
+                                _uiState.value = UiState.Loading
+                                audioPlayer.stop()
+                                localTts.stop()
+                                val content = repository.downloadChapterContent(chapter.id)
+                                if (content.isNotEmpty()) {
+                                    val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
+                                    _chapterLines.value = lines
+                                    playbackQueue = lines
+                                    _currentPlaybackIndex.value = 0
+
+                                    playAudioSegment(0)
+                                    updateService()
+                                }
+                            }
+                        } else {
+                            if (chapters.size < novel.totalChapters) {
+                                try {
+                                    repository.loadMoreChapters(novel.id)
+                                } catch(e: Exception) {}
+                            }
+                            _isPlaying.value = false
+                            audioPlayer.stop()
+                            localTts.stop()
+                        }
+                    } else {
+                        _isPlaying.value = false
+                        audioPlayer.stop()
+                        localTts.stop()
+                    }
                 }
             }
         }
