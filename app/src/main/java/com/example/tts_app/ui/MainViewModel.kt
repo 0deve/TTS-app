@@ -267,6 +267,10 @@ class MainViewModel(
 
         _viewingChapterIndex.value = chapterIndex
 
+        if (chapterIndex > novel.currentChapterIndex) {
+            updateProgress(novel, chapterIndex)
+        }
+
         val chapter = _activeChapters.value.find { it.index == chapterIndex } ?: return
         loadChapterContent(chapter, autoPlay)
 
@@ -279,10 +283,14 @@ class MainViewModel(
         val novel = _activeNovel.value ?: return
         val viewingIndex = _viewingChapterIndex.value
 
-        if (totalItems > 0 && visibleItemIndex > totalItems / 2) {
-            if (viewingIndex != -1 && viewingIndex != novel.currentChapterIndex) {
+        if (viewingIndex == -1 || totalItems == 0) return
+
+        if (viewingIndex < novel.currentChapterIndex) {
+            if (visibleItemIndex > totalItems / 2) {
                 updateProgress(novel, viewingIndex)
             }
+        } else if (viewingIndex > novel.currentChapterIndex) {
+            updateProgress(novel, viewingIndex)
         }
     }
 
@@ -426,7 +434,8 @@ class MainViewModel(
                     val novel = _activeNovel.value
                     val chapters = _activeChapters.value
                     if (novel != null && chapters.isNotEmpty()) {
-                        val nextChapterIndex = novel.currentChapterIndex + 1
+                        val currentIdx = if (_viewingChapterIndex.value != -1) _viewingChapterIndex.value else novel.currentChapterIndex
+                        val nextChapterIndex = currentIdx + 1
                         val nextChapter = chapters.find { it.index == nextChapterIndex }
                         if (nextChapter != null) {
                             val updated = novel.copy(currentChapterIndex = nextChapterIndex)

@@ -64,10 +64,8 @@ fun ReaderScreen(
     }
 
     var isImmersiveMode by remember { mutableStateOf(false) }
-
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
-
     var selectedSegmentIndex by remember { mutableStateOf(-1) }
 
     val listState = rememberLazyListState()
@@ -80,6 +78,26 @@ fun ReaderScreen(
     }
 
     val firstVisibleItemIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
+    val progressPercent by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            val visibleInfo = layoutInfo.visibleItemsInfo
+
+            if (total == 0 || visibleInfo.isEmpty()) {
+                0
+            } else {
+                val lastVisibleIndex = visibleInfo.last().index
+                if (lastVisibleIndex == total - 1) {
+                    100
+                } else {
+                    ((listState.firstVisibleItemIndex.toFloat() / total.toFloat()) * 100).toInt().coerceIn(0, 99)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(firstVisibleItemIndex) {
         viewModel.updateProgressIfThresholdMet(firstVisibleItemIndex, lines.size)
     }
@@ -144,6 +162,84 @@ fun ReaderScreen(
                     }
                 )
             }
+        },
+        bottomBar = {
+            if (!isImmersiveMode && lines.isNotEmpty() && uiState !is UiState.Error) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = cardColor),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .navigationBarsPadding()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp).padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${currentIndex + 1} / ${lines.size} segments",
+                                color = primaryColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed - 0.1f).coerceAtLeast(0.5f)) }) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease speed", tint = textColor)
+                                }
+                                Text(
+                                    text = "${String.format("%.1f", ttsSpeed)}x",
+                                    color = textColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed + 0.1f).coerceAtMost(3.0f)) }) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase speed", tint = textColor)
+                                }
+                            }
+                        }
+
+                        Slider(
+                            value = sliderPosition,
+                            onValueChange = {
+                                isDragging = true
+                                sliderPosition = it
+                            },
+                            onValueChangeFinished = {
+                                viewModel.onSegmentClick(sliderPosition.toInt())
+                                isDragging = false
+                            },
+                            valueRange = 0f..lines.lastIndex.toFloat().coerceAtLeast(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = primaryColor,
+                                inactiveTrackColor = Color(0xFF374151)
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(20.dp)
+                        )
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { novel?.let { if (viewingIndex > 0) viewModel.playFromIndex(viewingIndex - 1, autoPlay = isPlaying) } }) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = "prev", tint = secondaryColor)
+                            }
+                            Box(modifier = Modifier.size(56.dp).background(primaryColor, CircleShape).clickable { viewModel.togglePlayPause() }, contentAlignment = Alignment.Center) {
+                                if (uiState is UiState.Loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                                else if (isPlaying) Icon(painter = painterResource(android.R.drawable.ic_media_pause), contentDescription = "pause", tint = Color.White)
+                                else Icon(Icons.Default.PlayArrow, contentDescription = "play", tint = Color.White)
+                            }
+                            IconButton(onClick = { novel?.let { if (viewingIndex < (chapters.size - 1)) viewModel.playFromIndex(viewingIndex + 1, autoPlay = isPlaying) } }) {
+                                Icon(Icons.Default.SkipNext, contentDescription = "next", tint = secondaryColor)
+                            }
+                        }
+                    }
+                }
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -161,10 +257,7 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = textMargin.dp),
-                    contentPadding = PaddingValues(
-                        top = 20.dp,
-                        bottom = if (isImmersiveMode) 80.dp else 240.dp
-                    )
+                    contentPadding = PaddingValues(top = 20.dp, bottom = 20.dp)
                 ) {
                     itemsIndexed(lines) { index, line ->
                         val isActive = (index == currentIndex)
@@ -251,6 +344,18 @@ fun ReaderScreen(
                     }
                 }
 
+                if (lines.isNotEmpty()) {
+                    Text(
+                        text = "$progressPercent%",
+                        color = Color.Gray.copy(alpha = 0.5f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 16.dp)
+                    )
+                }
+
                 if (!isImmersiveMode) {
                     val layoutInfo = listState.layoutInfo
                     val totalItems = layoutInfo.totalItemsCount
@@ -328,83 +433,6 @@ fun ReaderScreen(
                             Icon(Icons.Default.Refresh, contentDescription = null, tint = errorColor)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Retry", color = errorColor)
-                        }
-                    }
-                }
-            }
-
-            if (!isImmersiveMode) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = cardColor),
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .wrapContentHeight()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp).padding(bottom = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${currentIndex + 1} / ${lines.size} segments",
-                                color = primaryColor,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed - 0.1f).coerceAtLeast(0.5f)) }) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease speed", tint = textColor)
-                                }
-                                Text(
-                                    text = "${String.format("%.1f", ttsSpeed)}x",
-                                    color = textColor,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                )
-                                IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed + 0.1f).coerceAtMost(3.0f)) }) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase speed", tint = textColor)
-                                }
-                            }
-                        }
-
-                        Slider(
-                            value = sliderPosition,
-                            onValueChange = {
-                                isDragging = true
-                                sliderPosition = it
-                            },
-                            onValueChangeFinished = {
-                                viewModel.onSegmentClick(sliderPosition.toInt())
-                                isDragging = false
-                            },
-                            valueRange = 0f..lines.lastIndex.toFloat().coerceAtLeast(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = primaryColor,
-                                inactiveTrackColor = Color(0xFF374151)
-                            ),
-                            modifier = Modifier.fillMaxWidth().height(20.dp)
-                        )
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { novel?.let { if (viewingIndex > 0) viewModel.playFromIndex(viewingIndex - 1, autoPlay = isPlaying) } }) {
-                                Icon(Icons.Default.SkipPrevious, contentDescription = "prev", tint = secondaryColor)
-                            }
-                            Box(modifier = Modifier.size(56.dp).background(primaryColor, CircleShape).clickable { viewModel.togglePlayPause() }, contentAlignment = Alignment.Center) {
-                                if (uiState is UiState.Loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                                else if (isPlaying) Icon(painter = painterResource(android.R.drawable.ic_media_pause), contentDescription = "pause", tint = Color.White)
-                                else Icon(Icons.Default.PlayArrow, contentDescription = "play", tint = Color.White)
-                            }
-                            IconButton(onClick = { novel?.let { if (viewingIndex < (chapters.size - 1)) viewModel.playFromIndex(viewingIndex + 1, autoPlay = isPlaying) } }) {
-                                Icon(Icons.Default.SkipNext, contentDescription = "next", tint = secondaryColor)
-                            }
                         }
                     }
                 }
