@@ -189,6 +189,9 @@ fun ReaderScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { viewModel.reloadCurrentChapter() }) {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Reload chapter", tint = textColor)
+                                }
                                 IconButton(onClick = { viewModel.setTtsSpeed((ttsSpeed - 0.1f).coerceAtLeast(0.5f)) }) {
                                     Icon(Icons.Default.Remove, contentDescription = "Decrease speed", tint = textColor)
                                 }

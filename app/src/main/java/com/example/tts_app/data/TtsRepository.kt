@@ -122,6 +122,15 @@ class TtsRepository(
         return content
     }
 
+    suspend fun forceReloadChapterContent(chapterId: Int): String {
+        val chapter = bookDao.getChapterById(chapterId) ?: return ""
+        val content = scraper.getChapterContent(chapter.url)
+        if (content.length > 50) {
+            bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+        }
+        return content
+    }
+
     suspend fun downloadChapterExplicitly(chapterId: Int) {
         val chapter = bookDao.getChapterById(chapterId) ?: return
         val content = if (chapter.content.isNotEmpty()) chapter.content else scraper.getChapterContent(chapter.url)

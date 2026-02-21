@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -83,6 +84,17 @@ fun NovelDetailsScreen(
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort", tint = textColor)
                         }
                     }
+                }
+
+                Button(
+                    onClick = { viewModel.reloadAllNovelChaptersContent(novel!!.id) },
+                    colors = ButtonDefaults.buttonColors(containerColor = surfaceColor),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = textColor)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Reload All Chapters", color = textColor)
                 }
 
                 LazyColumn {

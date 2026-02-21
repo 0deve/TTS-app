@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -18,12 +19,16 @@ class TtsService : Service() {
     private val CHANNEL_ID = "tts_playback_channel"
     private val NOTIFICATION_ID = 202
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TtsApp:PlaybackLock")
+
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "TtsApp:WifiLock")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -34,6 +39,7 @@ class TtsService : Service() {
             stopForeground(true)
             stopSelf()
             wakeLock?.let { if (it.isHeld) it.release() }
+            wifiLock?.let { if (it.isHeld) it.release() }
             return START_NOT_STICKY
         }
 
@@ -43,6 +49,7 @@ class TtsService : Service() {
 
         if (isPlaying) {
             wakeLock?.let { if (!it.isHeld) it.acquire(30 * 60 * 1000L) }
+            wifiLock?.let { if (!it.isHeld) it.acquire() }
         } else {
             wakeLock?.let {
                 if (it.isHeld) {
@@ -50,6 +57,7 @@ class TtsService : Service() {
                     it.acquire(10 * 60 * 1000L)
                 }
             }
+            wifiLock?.let { if (it.isHeld) it.release() }
         }
 
         val notification = buildNotification(title, chapter, isPlaying)
@@ -113,6 +121,7 @@ class TtsService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         wakeLock?.let { if (it.isHeld) it.release() }
+        wifiLock?.let { if (it.isHeld) it.release() }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

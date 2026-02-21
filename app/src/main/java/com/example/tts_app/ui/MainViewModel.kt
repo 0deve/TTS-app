@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import android.net.Uri
+import kotlinx.coroutines.withContext
 
 data class AppStatistics(
     val totalNovels: Int = 0,
@@ -313,12 +314,10 @@ class MainViewModel(
                 playbackQueue = lines
 
                 _currentPlaybackIndex.value = 0
+                _uiState.value = UiState.Idle
                 if (autoPlay) {
                     playAudioSegment(0)
                 }
-
-                _uiState.value = UiState.Idle
-
 
                 updateService()
             } else {
@@ -391,12 +390,15 @@ class MainViewModel(
                         if (_isPlaying.value && _currentPlaybackIndex.value == index) {
                             _uiState.value = UiState.Success
                             audioPlayer.playFile(file, _ttsSpeed.value)
+                        } else {
+                            _uiState.value = UiState.Idle
                         }
                     }.onFailure {
                         _uiState.value = UiState.Error(it.message ?: "Error")
                         _isPlaying.value = false
                     }
                 } else {
+                    _uiState.value = UiState.Idle
                     localTts.setVoice(_selectedVoice.value)
                     localTts.speak(text)
                 }
@@ -456,20 +458,66 @@ class MainViewModel(
                                     _chapterLines.value = lines
                                     playbackQueue = lines
                                     _currentPlaybackIndex.value = 0
+                                    _uiState.value = UiState.Idle
 
                                     playAudioSegment(0)
+                                    updateService()
+                                } else {
+                                    _uiState.value = UiState.Error("Failed to load content")
+                                    _isPlaying.value = false
                                     updateService()
                                 }
                             }
                         } else {
-                            if (chapters.size < novel.totalChapters) {
-                                try {
-                                    repository.loadMoreChapters(novel.id)
-                                } catch(e: Exception) {}
+                            viewModelScope.launch(Dispatchers.IO) {
+                                var foundNext = false
+                                if (chapters.size < novel.totalChapters) {
+                                    try {
+                                        val added = repository.loadMoreChapters(novel.id)
+                                        if (added > 0) {
+                                            val newChapters = bookDao.getChapterList(novel.id)
+                                            _activeChapters.value = newChapters
+                                            val newlyFetchedChapter = newChapters.find { it.index == nextChapterIndex }
+                                            if (newlyFetchedChapter != null) {
+                                                foundNext = true
+                                                withContext(Dispatchers.Main) {
+                                                    val updated = novel.copy(currentChapterIndex = nextChapterIndex)
+                                                    bookDao.updateNovel(updated)
+                                                    if (_activeNovel.value?.id == novel.id) {
+                                                        _activeNovel.value = updated
+                                                    }
+                                                    _viewingChapterIndex.value = nextChapterIndex
+                                                    _uiState.value = UiState.Loading
+                                                    audioPlayer.stop()
+                                                    localTts.stop()
+                                                    val content = repository.downloadChapterContent(newlyFetchedChapter.id)
+                                                    if (content.isNotEmpty()) {
+                                                        val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
+                                                        _chapterLines.value = lines
+                                                        playbackQueue = lines
+                                                        _currentPlaybackIndex.value = 0
+                                                        _uiState.value = UiState.Idle
+                                                        playAudioSegment(0)
+                                                        updateService()
+                                                    } else {
+                                                        _uiState.value = UiState.Error("Failed to load content")
+                                                        _isPlaying.value = false
+                                                        updateService()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch(e: Exception) {}
+                                }
+                                if (!foundNext) {
+                                    withContext(Dispatchers.Main) {
+                                        _isPlaying.value = false
+                                        audioPlayer.stop()
+                                        localTts.stop()
+                                        updateService()
+                                    }
+                                }
                             }
-                            _isPlaying.value = false
-                            audioPlayer.stop()
-                            localTts.stop()
                         }
                     } else {
                         _isPlaying.value = false
@@ -569,8 +617,36 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val chapters = bookDao.getChapterList(novelId)
             val updated = chapters.map { it.copy(content = "", isDownloaded = false) }
-            bookDao.insertChapters(updated)
+            bookDao.insertOrUpdateChapters(updated)
             loadStatistics()
+        }
+    }
+
+    fun reloadAllNovelChaptersContent(novelId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val chapters = bookDao.getChapterList(novelId)
+            val updated = chapters.map { it.copy(content = "", isDownloaded = false) }
+            bookDao.insertOrUpdateChapters(updated)
+        }
+    }
+
+    fun reloadCurrentChapter() {
+        val chapterIndex = _viewingChapterIndex.value
+        val chapter = _activeChapters.value.find { it.index == chapterIndex } ?: return
+        viewModelScope.launch {
+            _uiState.value = UiState.Loading
+            stopAudio()
+            val content = repository.forceReloadChapterContent(chapter.id)
+            if (content.isNotEmpty()) {
+                val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
+                _chapterLines.value = lines
+                playbackQueue = lines
+                _currentPlaybackIndex.value = 0
+                _uiState.value = UiState.Idle
+                updateService()
+            } else {
+                _uiState.value = UiState.Error("Failed to reload content")
+            }
         }
     }
 
