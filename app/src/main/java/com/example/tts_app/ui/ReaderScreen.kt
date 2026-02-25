@@ -73,7 +73,8 @@ fun ReaderScreen(
 
     LaunchedEffect(lines) {
         if (lines.isNotEmpty()) {
-            listState.scrollToItem(0)
+            val targetIndex = if (currentIndex != -1) currentIndex else 0
+            listState.scrollToItem(targetIndex)
         }
     }
 

@@ -1,4 +1,5 @@
 package com.example.tts_app.data
+
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -83,29 +84,33 @@ class TtsRepository(
         val novel = bookDao.getNovelById(novelId) ?: return 0
         val currentChapters = bookDao.getChapterList(novelId)
 
-        val pageToFetch = (currentChapters.size / 50) + 1
+        val maxIndex = currentChapters.maxOfOrNull { it.index } ?: -1
+        val pageToFetch = ((maxIndex + 1) / 100) + 1
 
-        val newChapters = scraper.getChaptersBatch(novel.url, pageToFetch)
+        var newChapters = scraper.getChaptersBatch(novel.url, pageToFetch)
+        if (newChapters.isEmpty() && pageToFetch > 1) {
+            newChapters = scraper.getChaptersBatch(novel.url, pageToFetch - 1)
+        }
 
         if (newChapters.isNotEmpty()) {
-            val startIndex = currentChapters.size
-            val chaptersWithId = newChapters.mapIndexed { index, chapter ->
-                chapter.copy(novelId = novelId, index = startIndex + index)
-            }
-
-            val uniqueChapters = chaptersWithId.filter { newCh ->
+            val uniqueChapters = newChapters.filter { newCh ->
                 currentChapters.none { it.url == newCh.url }
             }
 
             if (uniqueChapters.isNotEmpty()) {
-                bookDao.insertOrUpdateChapters(uniqueChapters)
+                val startIndex = maxIndex + 1
+                val chaptersWithId = uniqueChapters.mapIndexed { index, chapter ->
+                    chapter.copy(novelId = novelId, index = startIndex + index)
+                }
 
-                val newTotal = currentChapters.size + uniqueChapters.size
+                bookDao.insertOrUpdateChapters(chaptersWithId)
+
+                val newTotal = currentChapters.size + chaptersWithId.size
                 if (newTotal > novel.totalChapters) {
                     bookDao.updateNovel(novel.copy(totalChapters = newTotal))
                 }
 
-                return uniqueChapters.size
+                return chaptersWithId.size
             }
         }
         return 0
@@ -115,28 +120,44 @@ class TtsRepository(
         val chapter = bookDao.getChapterById(chapterId) ?: return ""
         if (chapter.content.isNotEmpty()) return chapter.content
 
-        val content = scraper.getChapterContent(chapter.url)
-        if (content.length > 50) {
-            bookDao.updateChapter(chapter.copy(content = content))
+        var content = ""
+        for (i in 1..6) {
+            content = scraper.getChapterContent(chapter.url)
+            if (content.length > 50 && !content.startsWith("Error")) {
+                bookDao.updateChapter(chapter.copy(content = content))
+                return content
+            }
+            if (i < 6) kotlinx.coroutines.delay(5000)
         }
         return content
     }
 
     suspend fun forceReloadChapterContent(chapterId: Int): String {
         val chapter = bookDao.getChapterById(chapterId) ?: return ""
-        val content = scraper.getChapterContent(chapter.url)
-        if (content.length > 50) {
-            bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+        var content = ""
+        for (i in 1..6) {
+            content = scraper.getChapterContent(chapter.url)
+            if (content.length > 50 && !content.startsWith("Error")) {
+                bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+                return content
+            }
+            if (i < 6) kotlinx.coroutines.delay(5000)
         }
         return content
     }
 
     suspend fun downloadChapterExplicitly(chapterId: Int) {
         val chapter = bookDao.getChapterById(chapterId) ?: return
-        val content = if (chapter.content.isNotEmpty()) chapter.content else scraper.getChapterContent(chapter.url)
+        var content = if (chapter.content.isNotEmpty()) chapter.content else ""
+        if (content.isNotEmpty()) return
 
-        if (content.length > 50) {
-            bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+        for (i in 1..6) {
+            content = scraper.getChapterContent(chapter.url)
+            if (content.length > 50 && !content.startsWith("Error")) {
+                bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+                return
+            }
+            if (i < 6) kotlinx.coroutines.delay(5000)
         }
     }
 
@@ -151,9 +172,14 @@ class TtsRepository(
         for (chapter in targetChapters) {
             if (!chapter.isDownloaded) {
                 try {
-                    val content = scraper.getChapterContent(chapter.url)
-                    if (content.length > 50) {
-                        bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+                    var content = ""
+                    for (i in 1..6) {
+                        content = scraper.getChapterContent(chapter.url)
+                        if (content.length > 50 && !content.startsWith("Error")) {
+                            bookDao.updateChapter(chapter.copy(content = content, isDownloaded = true))
+                            break
+                        }
+                        if (i < 6) kotlinx.coroutines.delay(5000)
                     }
                 } catch (e: Exception) {
                     Log.e("Repo", "Download failed for ${chapter.title}: ${e.message}")
@@ -272,6 +298,7 @@ class TtsRepository(
                 cObj.put("url", chapter.url)
                 cObj.put("content", chapter.content)
                 cObj.put("isDownloaded", chapter.isDownloaded)
+                cObj.put("releaseDate", chapter.releaseDate)
                 chaptersArray.put(cObj)
             }
 
@@ -329,7 +356,8 @@ class TtsRepository(
                     title = obj.getString("title"),
                     url = obj.getString("url"),
                     content = obj.optString("content"),
-                    isDownloaded = obj.getBoolean("isDownloaded")
+                    isDownloaded = obj.getBoolean("isDownloaded"),
+                    releaseDate = obj.optString("releaseDate", "")
                 ))
             }
 

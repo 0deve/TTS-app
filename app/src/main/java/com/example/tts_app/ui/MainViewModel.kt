@@ -286,6 +286,8 @@ class MainViewModel(
 
         if (viewingIndex == -1 || totalItems == 0) return
 
+        preferencesManager.saveInt("novel_${novel.id}_chapter_${viewingIndex}_segment", visibleItemIndex)
+
         if (viewingIndex < novel.currentChapterIndex) {
             if (visibleItemIndex > totalItems / 2) {
                 updateProgress(novel, viewingIndex)
@@ -313,10 +315,13 @@ class MainViewModel(
                 _chapterLines.value = lines
                 playbackQueue = lines
 
-                _currentPlaybackIndex.value = 0
+                val savedSegment = preferencesManager.getInt("novel_${chapter.novelId}_chapter_${chapter.index}_segment", 0)
+                val safeSegment = if (savedSegment in lines.indices) savedSegment else 0
+
+                _currentPlaybackIndex.value = safeSegment
                 _uiState.value = UiState.Idle
                 if (autoPlay) {
-                    playAudioSegment(0)
+                    playAudioSegment(safeSegment)
                 }
 
                 updateService()
@@ -382,6 +387,12 @@ class MainViewModel(
 
                 _isPlaying.value = true
                 _currentPlaybackIndex.value = index
+
+                val novel = _activeNovel.value
+                if (novel != null) {
+                    preferencesManager.saveInt("novel_${novel.id}_chapter_${_viewingChapterIndex.value}_segment", index)
+                }
+
                 val text = playbackQueue[index]
 
                 if (_isServerTtsEnabled.value) {
@@ -457,10 +468,14 @@ class MainViewModel(
                                     val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
                                     _chapterLines.value = lines
                                     playbackQueue = lines
-                                    _currentPlaybackIndex.value = 0
+
+                                    val savedSegment = preferencesManager.getInt("novel_${chapter.novelId}_chapter_${chapter.index}_segment", 0)
+                                    val safeSegment = if (savedSegment in lines.indices) savedSegment else 0
+
+                                    _currentPlaybackIndex.value = safeSegment
                                     _uiState.value = UiState.Idle
 
-                                    playAudioSegment(0)
+                                    playAudioSegment(safeSegment)
                                     updateService()
                                 } else {
                                     _uiState.value = UiState.Error("Failed to load content")
@@ -495,9 +510,13 @@ class MainViewModel(
                                                         val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
                                                         _chapterLines.value = lines
                                                         playbackQueue = lines
-                                                        _currentPlaybackIndex.value = 0
+
+                                                        val savedSegment = preferencesManager.getInt("novel_${newlyFetchedChapter.novelId}_chapter_${newlyFetchedChapter.index}_segment", 0)
+                                                        val safeSegment = if (savedSegment in lines.indices) savedSegment else 0
+
+                                                        _currentPlaybackIndex.value = safeSegment
                                                         _uiState.value = UiState.Idle
-                                                        playAudioSegment(0)
+                                                        playAudioSegment(safeSegment)
                                                         updateService()
                                                     } else {
                                                         _uiState.value = UiState.Error("Failed to load content")
@@ -641,7 +660,11 @@ class MainViewModel(
                 val lines = content.split(Regex("(?<=[.!?])\\s+|\n")).filter { it.isNotBlank() }
                 _chapterLines.value = lines
                 playbackQueue = lines
-                _currentPlaybackIndex.value = 0
+
+                val savedSegment = preferencesManager.getInt("novel_${chapter.novelId}_chapter_${chapter.index}_segment", 0)
+                val safeSegment = if (savedSegment in lines.indices) savedSegment else 0
+
+                _currentPlaybackIndex.value = safeSegment
                 _uiState.value = UiState.Idle
                 updateService()
             } else {
