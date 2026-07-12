@@ -1,5 +1,7 @@
 # [AllTalk](https://github.com/erew123/alltalk_tts) Android Client
 
+This project is no longer actively updated. I have developed a newer application called [Vates-Novel](https://github.com/0deve/Vates-Novel). Please note that while Vates-Novel is the current focus, it does not include AllTalk support.
+
 Simple Android client for TTS audio generation using a local [AllTalk](https://github.com/erew123/alltalk_tts) server.
 
 Connects to a self-hosted AllTalk server to generate AI voices without relying on cloud APIs.
